@@ -1,0 +1,14 @@
+{
+  "remote": {
+    "ip": "",
+    "port": "",
+    "user": "",
+    "password": ""
+  },
+  "vm": {
+    "vm_img_path": "",
+    "vm_img_file_name": "",
+    "vm_user": "",
+    "vm_password": ""
+  }
+}
