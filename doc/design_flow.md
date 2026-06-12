@@ -18,6 +18,7 @@
 9. [Entry 08 - Design-to-Implementation Traceability](#entry-08)
 10. [Entry 09 - Host Lifecycle and Rerun Extension](#entry-09)
 11. [Entry 10 - Force-Stop Escalation Refinement](#entry-10)
+12. [Entry 11 - API-First Control Channel](#entry-11)
 
 ## Change Log Rules
 
@@ -150,4 +151,18 @@ Each entry uses:
 - Why improved:
   - Removes ambiguity in interruption semantics during drain windows.
   - Makes state-machine behavior deterministic for edge phases (`starting`, `DRAINING`).
+
+## Entry 11
+
+- Change summary: Switched TaskHost control model to API-first with optional interactive CLI input.
+- Entry type: Design Modification
+- Original design -> New design:
+  - Original: TaskHost always started a stdin command thread for `start/graceful_stop/force_stop/rerun` control.
+  - New:
+    - Monitor API is the default control surface for runtime orchestration.
+    - Interactive stdin command loop is enabled only when `--interactive-cli` is explicitly provided.
+    - When host is `NOT_RUN`, startup guidance points to `POST /control/start`, while CLI mode remains available for terminal workflows.
+- Why improved:
+  - Improves GUI integration by removing dependence on terminal stdin semantics.
+  - Keeps CLI ergonomics without forcing dual-control behavior in non-interactive deployments.
 

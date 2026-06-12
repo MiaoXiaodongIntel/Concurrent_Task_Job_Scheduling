@@ -12,8 +12,10 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import threading
 from pathlib import Path
 
+from monitor_api import MonitorServer
 from scheduler import Scheduler
 from task_manager import TaskJob, TaskManager, TaskStatus
 from task_runner import TaskRunner
@@ -94,7 +96,57 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="Optional path to write final host/task summary as JSON",
     )
+    parser.add_argument(
+        "--auto-start",
+        action="store_true",
+        help="Start scheduling immediately without waiting for a start command",
+    )
+    parser.add_argument(
+        "--monitor-host",
+        default="127.0.0.1",
+        help="Monitor API bind host (default: 127.0.0.1)",
+    )
+    parser.add_argument(
+        "--monitor-port",
+        type=int,
+        default=8765,
+        help="Monitor API port (default: 8765)",
+    )
+    parser.add_argument(
+        "--interactive-cli",
+        action="store_true",
+        help="Enable interactive stdin command loop for CLI usage",
+    )
     return parser.parse_args()
+
+
+def _command_loop(manager: TaskManager) -> None:
+    print("[CTRL] Command loop ready. Supported: start, graceful_stop, force_stop, rerun <task_id...>")
+    for raw in sys.stdin:
+        line = raw.strip()
+        if not line:
+            continue
+
+        parts = line.split()
+        cmd = parts[0].lower()
+        args = parts[1:]
+
+        if cmd in {"start", "graceful_stop", "force_stop", "rerun"}:
+            if cmd == "rerun" and not args:
+                print("[CTRL] rerun ignored: provide at least one task_id")
+                continue
+            result = manager.control(cmd, args)
+            if cmd == "rerun":
+                print(
+                    "[CTRL] rerun "
+                    f"accepted={result.get('affected_task_ids', [])} "
+                    f"rejected={result.get('rejected_task_ids', [])}"
+                )
+            else:
+                print(f"[CTRL] {cmd} {'accepted' if result.get('accepted') else 'ignored'}")
+            continue
+
+        print(f"[CTRL] unknown command: {line}")
 
 
 def build_summary(manager: TaskManager) -> dict[str, object]:
@@ -102,6 +154,7 @@ def build_summary(manager: TaskManager) -> dict[str, object]:
     return {
         "host_state": manager.host_state.value,
         "queue_size": sum(1 for t in manager.tasks.values() if t.status == TaskStatus.QUEUED),
+        "starting_count": sum(1 for t in manager.tasks.values() if t.status == TaskStatus.STARTING),
         "running_count": sum(1 for t in manager.tasks.values() if t.status == TaskStatus.RUNNING),
         "completed_count": sum(
             1
@@ -133,9 +186,28 @@ def main() -> int:
         log_dir=log_dir,
         scheduler_tick=args.scheduler_tick,
         status_interval=args.status_interval,
+        auto_start=args.auto_start,
     )
 
-    exit_code = manager.run()
+    monitor = MonitorServer(manager=manager, host=args.monitor_host, port=args.monitor_port)
+    monitor.start()
+
+    if args.interactive_cli:
+        if sys.stdin.isatty():
+            command_thread = threading.Thread(target=_command_loop, args=(manager,), daemon=True)
+            command_thread.start()
+        else:
+            print("[CTRL] interactive CLI requested but stdin is not a TTY; stdin command loop disabled.")
+
+    if not args.auto_start:
+        print("[HOST] Initial state is NOT_RUN. Use POST /control/start to begin scheduling.")
+        if args.interactive_cli and sys.stdin.isatty():
+            print("[HOST] CLI mode is enabled. You can also type 'start' and press Enter.")
+
+    try:
+        exit_code = manager.run()
+    finally:
+        monitor.stop()
 
     if args.summary_json:
         summary_path = Path(args.summary_json).resolve()

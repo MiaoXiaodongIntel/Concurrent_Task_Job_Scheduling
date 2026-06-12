@@ -13,7 +13,8 @@ It is responsible for:
 1. Parsing runtime arguments.
 2. Loading and validating task definitions.
 3. Wiring `Scheduler`, `TaskRunner`, and `TaskManager`.
-4. Producing final summary output when `--summary-json` is provided.
+4. Wiring `MonitorServer` for read/control HTTP endpoints.
+5. Producing final summary output when `--summary-json` is provided.
 
 ## 2. CLI Interface
 
@@ -26,11 +27,15 @@ Current arguments:
 5. `--log-dir` (default: `logs`)
 6. `--summary-json` (optional)
 7. `--auto-start` (optional, default: `false`)
+8. `--monitor-host` (default: `127.0.0.1`)
+9. `--monitor-port` (default: `8765`)
+10. `--interactive-cli` (optional, default: `false`)
 
 Startup mode contract:
 
 1. Default mode (`--auto-start` not set): host enters `NOT_RUN` after loading tasks and waits for explicit start command.
 2. Debug mode (`--auto-start` set): host transitions to `RUNNING` immediately after initialization.
+3. Control channel default is Monitor API; interactive stdin command loop is enabled only when `--interactive-cli` is set.
 
 ## 3. Task Definition Contract
 
@@ -55,9 +60,11 @@ Validation guarantees:
 1. `main()` parses args and resolves paths.
 2. `load_tasks(...)` validates and returns `list[TaskJob]`.
 3. `Scheduler`, `TaskRunner`, `TaskManager` are instantiated.
-4. Host enters `NOT_RUN` by default (or `RUNNING` when `--auto-start` is enabled).
-5. `TaskManager.run()` executes lifecycle loop with start/stop/rerun control participation.
-6. `build_summary(...)` writes JSON snapshot if requested.
+4. `MonitorServer` is started with configured host/port.
+5. Optional stdin command thread is started only in interactive CLI mode.
+6. Host enters `NOT_RUN` by default (or `RUNNING` when `--auto-start` is enabled).
+7. `TaskManager.run()` executes lifecycle loop with start/stop/rerun control participation.
+8. `build_summary(...)` writes JSON snapshot if requested.
 
 ## 5. Exit Code Contract
 

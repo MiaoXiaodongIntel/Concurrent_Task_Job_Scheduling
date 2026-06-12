@@ -2,11 +2,17 @@
 
 Back to architecture: [design_arch.md](design_arch.md)
 
+Implementation file: [../monitor_api.py](../monitor_api.py)
+
+Composition wiring: [../task_host.py](../task_host.py)
+
 ## 1. Responsibility
 
 MonitorAPI provides read and control interfaces for monitoring and integration.
 
 It does not own lifecycle transition rules. It exposes lifecycle state from TaskManager and forwards manual control intents to ControlPlane.
+
+MonitorAPI is the primary control surface for GUI integration; stdin command control in TaskHost is optional and CLI-focused.
 
 ## 2. Read Interfaces
 
@@ -15,6 +21,11 @@ It does not own lifecycle transition rules. It exposes lifecycle state from Task
 3. `GET /tasks`
 4. `GET /tasks/{id}`
 5. `GET /tasks/{id}/logs?cursor=...`
+
+Transport contract:
+
+1. HTTP JSON API served by local host process.
+2. `/tasks/{id}/logs` uses line-based `cursor` and optional `limit` query parameters.
 
 ## 3. Control Interfaces
 

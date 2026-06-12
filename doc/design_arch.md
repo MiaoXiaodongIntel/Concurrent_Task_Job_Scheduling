@@ -31,6 +31,8 @@ The project provides the following core capabilities:
    - Responsibilities:
       - Parses CLI arguments and loads task definitions.
       - Wires `Scheduler`, `TaskRunner`, and `TaskManager` as composition root.
+   - Wires `MonitorAPI` as primary runtime control/read channel.
+   - Optionally enables stdin command loop for interactive CLI mode.
       - Emits final JSON summary when requested.
    - Details: [design_task_host.md](design_task_host.md)
    - Implementation: [../task_host.py](../task_host.py)
@@ -62,13 +64,13 @@ The project provides the following core capabilities:
       - Owns host start/resume and rerun command orchestration.
       - Coordinates host-level stop behavior.
    - Details: [design_control_plane.md](design_control_plane.md)
-   - Implementation status: planned (not implemented as independent module yet)
+   - Implementation: integrated in [../task_manager.py](../task_manager.py) and [../task_host.py](../task_host.py)
 - MonitorAPI
    - Responsibilities:
       - Exposes host/task status and log query interfaces.
       - Serves as integration boundary for GUI/CLI and automation.
    - Details: [design_monitor_api.md](design_monitor_api.md)
-   - Implementation status: planned (not implemented as independent module yet)
+   - Implementation: [../monitor_api.py](../monitor_api.py), wired by [../task_host.py](../task_host.py)
 
 ## 4. Design-to-Implementation Traceability
 
@@ -86,10 +88,13 @@ The project provides the following core capabilities:
    - Code: [../task_runner.py](../task_runner.py)
 5. Manual stop and abort orchestration:
    - Doc: [design_control_plane.md](design_control_plane.md)
-   - Code: integrated in [../task_manager.py](../task_manager.py) in current implementation stage
+   - Code: integrated in [../task_manager.py](../task_manager.py) and [../task_host.py](../task_host.py)
 6. Rerun requeue operation:
    - Doc: [design_control_plane.md](design_control_plane.md), [design_task_manager.md](design_task_manager.md)
-   - Code: planned
+   - Code: [../task_manager.py](../task_manager.py)
+7. Monitor read/control API surface:
+   - Doc: [design_monitor_api.md](design_monitor_api.md)
+   - Code: [../monitor_api.py](../monitor_api.py)
 
 
 ---
