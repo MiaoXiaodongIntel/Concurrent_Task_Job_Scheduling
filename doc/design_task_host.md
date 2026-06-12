@@ -15,6 +15,7 @@ It is responsible for:
 3. Wiring `Scheduler`, `TaskRunner`, and `TaskManager`.
 4. Wiring `MonitorServer` for read/control HTTP endpoints.
 5. Producing final summary output when `--summary-json` is provided.
+6. Running host loop in resident mode until explicit shutdown is requested.
 
 ## 2. CLI Interface
 
@@ -46,6 +47,7 @@ Startup mode contract:
 1. Default mode (`--auto-start` not set): host enters `NOT_RUN` after loading tasks and waits for explicit start command.
 2. Debug mode (`--auto-start` set): host transitions to `RUNNING` immediately after initialization.
 3. Control channel default is Monitor API; interactive stdin command loop is enabled only when `--interactive-cli` is set.
+4. Execution-round completion does not terminate host process; host transitions to `IDLE` and waits for new control requests.
 
 ## 3. Task Definition Contract
 
@@ -65,6 +67,12 @@ Validation guarantees:
 2. all commands are non-empty strings
 3. at least one task exists
 
+Runtime submission contract (via Monitor API):
+
+1. `POST /tasks/submit` payload follows the same task schema (`task_id`, `commands`).
+2. `append` mode appends new tasks.
+3. `replace` mode is rejected when there are in-flight tasks.
+
 ## 4. Runtime Composition Flow
 
 1. `main()` parses args and resolves paths.
@@ -73,13 +81,14 @@ Validation guarantees:
 4. `MonitorServer` is started with configured host/port.
 5. Optional stdin command thread is started only in interactive CLI mode.
 6. Host enters `NOT_RUN` by default (or `RUNNING` when `--auto-start` is enabled).
-7. `TaskManager.run()` executes lifecycle loop with start/stop/rerun control participation.
+7. `TaskManager.run()` executes lifecycle loop with start/stop/rerun/submit/shutdown control participation.
 8. `build_summary(...)` writes JSON snapshot if requested.
+9. Process exits only after shutdown command completion.
 
 ## 5. Exit Code Contract
 
 1. returns `2` when task-file loading/parsing fails
-2. otherwise returns `TaskManager.run()` exit code
+2. otherwise returns `TaskManager.run()` exit code (normally `0` when shutdown flow completes)
 
 Related docs:
 

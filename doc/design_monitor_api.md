@@ -33,6 +33,8 @@ Transport contract:
 2. `POST /control/graceful-stop`
 3. `POST /control/force-stop`
 4. `POST /control/rerun`
+5. `POST /control/shutdown`
+6. `POST /tasks/submit`
 
 Control endpoints are intent APIs, not direct state mutation APIs. Final task status changes are committed by TaskManager.
 
@@ -46,7 +48,7 @@ Control endpoints are intent APIs, not direct state mutation APIs. Final task st
 
 Host-level fields:
 
-1. `host_state` (`NOT_RUN|RUNNING|DRAINING|STOPPING_FORCE|STOPPED`)
+1. `host_state` (`NOT_RUN|RUNNING|DRAINING|STOPPING_FORCE|IDLE|SHUTTING_DOWN`)
 2. `queued_count`
 3. `starting_count`
 4. `running_count`
@@ -87,18 +89,22 @@ Requirement 2.6 (manual lifecycle intervention):
 2. `POST /control/graceful-stop` submits drain intent.
 3. `POST /control/force-stop` submits forced termination intent.
 4. `POST /control/rerun` submits rerun intent for `succeeded|failed -> queued`.
-5. `GET /health` and `GET /tasks` expose intervention effects (for example reduced admissions, `aborted` tasks, and `abort_reason`).
+5. `POST /tasks/submit` submits runtime task-list append/replace intent.
+6. `POST /control/shutdown` submits host process shutdown intent (`drain` default).
+7. `GET /health` and `GET /tasks` expose intervention effects (for example reduced admissions, `aborted` tasks, and `abort_reason`).
 
 ### 4.3 Control Command Response Contract
 
 For control endpoints, responses should include:
 
 1. `accepted` (whether command was accepted)
-2. `command` (`start|graceful_stop|force_stop|rerun`)
+2. `command` (`start|graceful_stop|force_stop|rerun|shutdown|submit_tasks`)
 3. `requested_at`
 4. `host_state_before`
-5. `message` (human-readable command handling summary)
-6. `affected_task_ids` (required for `rerun`, optional for others)
+5. `host_state_after_expected`
+6. `message` (human-readable command handling summary)
+7. `reason_code` (when command is rejected or requires machine parsing)
+8. `affected_task_ids` (required for `rerun` and `tasks/submit`, optional for others)
 
 Lifecycle completion is observed through read APIs, not guaranteed by control endpoint immediate response.
 

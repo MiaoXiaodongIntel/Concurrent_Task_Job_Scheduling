@@ -14,12 +14,14 @@ It is the owner of manual lifecycle intervention semantics (requirement 2.6), wh
 2. `graceful_stop`
 3. `force_stop`
 4. `rerun`
+5. `submit_tasks`
+6. `shutdown`
 
 ## 3. Behavior Contract
 
 ### 3.0 Start/Resume
 
-1. If host is `NOT_RUN` or `STOPPED`, transition host state to `RUNNING`.
+1. If host is `NOT_RUN` or `IDLE`, transition host state to `RUNNING`.
 2. Scheduler admission is enabled again.
 3. Existing `queued` tasks remain eligible for future admission.
 
@@ -28,7 +30,7 @@ It is the owner of manual lifecycle intervention semantics (requirement 2.6), wh
 1. Transition host state to `DRAINING`.
 2. Stop admitting new tasks.
 3. Wait for running tasks to finish.
-4. Transition host state to `STOPPED`.
+4. Transition host state to `IDLE`.
 5. Keep all not-yet-admitted tasks in `queued` state.
 
 Lifecycle intent:
@@ -43,7 +45,7 @@ Lifecycle intent:
 3. Terminate running task processes.
 4. Mark terminated tasks as `aborted`.
 5. Mark tasks currently in `starting` as `aborted` when startup cannot complete due to force-stop.
-6. Transition host state to `STOPPED`.
+6. Transition host state to `IDLE`.
 
 Lifecycle intent:
 
@@ -56,7 +58,22 @@ Lifecycle intent:
 2. Reset selected task attempt metadata as needed by TaskManager policy.
 3. Transition selected tasks back to `queued`.
 4. If host is `RUNNING`, rerun tasks become immediately eligible for admission.
-5. If host is `NOT_RUN` or `STOPPED`, rerun tasks remain `queued` until next `start`.
+5. If host is `NOT_RUN` or `IDLE`, rerun tasks remain `queued` until next `start`.
+
+### 3.4 Runtime Task Submission
+
+1. `append` mode appends validated tasks to the existing queue and task set.
+2. `replace` mode replaces the task set only when there is no in-flight task.
+3. If in-flight tasks exist, `replace` must be rejected.
+4. Submitted tasks follow the same validation contract as initial task-file loading.
+
+### 3.5 Shutdown
+
+1. `shutdown` transitions host state to `SHUTTING_DOWN`.
+2. Default shutdown mode is `drain`.
+3. In `drain` mode, host stops new admissions and exits after in-flight tasks complete.
+4. In `force` mode, host aborts in-flight tasks and exits after process cleanup.
+5. Optional timeout can escalate `drain` to forced termination.
 
 ## 4. Interface with Other Modules
 
@@ -68,7 +85,7 @@ Lifecycle intent:
 
 1. Requirement 2.4 (lifecycle governance): shared with TaskManager; this module does not redefine state invariants.
 2. Requirement 2.5 (automatic progression): not owned here.
-3. Requirement 2.6 (manual intervention): owned here, including start/stop/rerun command semantics and abort policy.
+3. Requirement 2.6 (manual intervention): owned here, including start/stop/rerun/submit/shutdown command semantics and abort policy.
 
 Related docs:
 

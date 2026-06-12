@@ -139,7 +139,10 @@ def parse_args() -> argparse.Namespace:
 
 
 def _command_loop(manager: TaskManager) -> None:
-    print("[CTRL] Command loop ready. Supported: start, graceful_stop, force_stop, rerun <task_id...>")
+    print(
+        "[CTRL] Command loop ready. Supported: "
+        "start, graceful_stop, force_stop, rerun <task_id...>, shutdown [drain|force]"
+    )
     for raw in sys.stdin:
         line = raw.strip()
         if not line:
@@ -149,10 +152,16 @@ def _command_loop(manager: TaskManager) -> None:
         cmd = parts[0].lower()
         args = parts[1:]
 
-        if cmd in {"start", "graceful_stop", "force_stop", "rerun"}:
+        if cmd in {"start", "graceful_stop", "force_stop", "rerun", "shutdown"}:
             if cmd == "rerun" and not args:
                 print("[CTRL] rerun ignored: provide at least one task_id")
                 continue
+            if cmd == "shutdown":
+                mode = args[0].strip().lower() if args else "drain"
+                result = manager.control(cmd, options={"mode": mode})
+                print(f"[CTRL] shutdown {'accepted' if result.get('accepted') else 'ignored'}")
+                continue
+
             result = manager.control(cmd, args)
             if cmd == "rerun":
                 print(
@@ -226,6 +235,8 @@ def main() -> int:
         print("[HOST] Initial state is NOT_RUN. Use POST /control/start to begin scheduling.")
         if args.interactive_cli and sys.stdin.isatty():
             print("[HOST] CLI mode is enabled. You can also type 'start' and press Enter.")
+
+    print("[HOST] Resident mode enabled. The process stays alive in IDLE until shutdown is requested.")
 
     try:
         exit_code = manager.run()

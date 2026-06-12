@@ -20,6 +20,7 @@
 11. [Entry 10 - Force-Stop Escalation Refinement](#entry-10)
 12. [Entry 11 - API-First Control Channel](#entry-11)
 13. [Entry 12 - Resource Admission Guardrails Implemented](#entry-12)
+14. [Entry 13 - Resident Host and Unified Shutdown Model](#entry-13)
 
 ## Change Log Rules
 
@@ -182,4 +183,20 @@ Each entry uses:
 - Why improved:
   - Removes architecture-to-implementation drift for resource admission requirements.
   - Provides explicit operational knobs to tune throughput vs host protection.
+
+## Entry 13
+
+- Change summary: Shifted host process behavior from round-complete termination to resident service mode with unified shutdown and runtime task submission.
+- Entry type: Requirement Change
+- Original design -> New design:
+  - Original: Host lifecycle used `STOPPED` and implied process-level stop semantics after stop/completion flows; task list was primarily loaded at startup.
+  - New:
+    - Host lifecycle replaces `STOPPED` with `IDLE` and adds `SHUTTING_DOWN` for explicit process-exit orchestration.
+    - Round completion moves host to `IDLE` instead of terminating process.
+    - Control surface adds `shutdown` (default `drain`) for GUI/CLI/test script unified process termination.
+    - Monitor/API control surface adds runtime `tasks/submit` with `append|replace` semantics; `replace` is rejected while in-flight tasks exist.
+- Why improved:
+  - Enables multi-round execution without restarting CLI process, matching GUI-oriented operation.
+  - Separates execution control from process lifecycle, reducing control ambiguity.
+  - Provides one shutdown path usable by GUI, interactive CLI, and automated tests.
 

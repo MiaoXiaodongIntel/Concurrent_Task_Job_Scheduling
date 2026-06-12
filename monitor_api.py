@@ -41,7 +41,13 @@ class MonitorServer:
                 raw = self.rfile.read(length)
                 if not raw:
                     return {}
-                return json.loads(raw.decode("utf-8"))
+                try:
+                    payload = json.loads(raw.decode("utf-8"))
+                except json.JSONDecodeError as exc:
+                    raise ValueError(f"invalid json payload: {exc.msg}") from exc
+                if not isinstance(payload, dict):
+                    raise ValueError("json payload must be an object")
+                return payload
 
             def log_message(self, _format: str, *_args: object) -> None:
                 # Keep monitor endpoint noise out of main console logs.
@@ -68,8 +74,12 @@ class MonitorServer:
                     suffix = path[len("/tasks/") :]
                     if suffix.endswith("/logs"):
                         task_id = suffix[: -len("/logs")]
-                        cursor = int(query.get("cursor", ["0"])[0])
-                        limit = int(query.get("limit", ["200"])[0])
+                        try:
+                            cursor = int(query.get("cursor", ["0"])[0])
+                            limit = int(query.get("limit", ["200"])[0])
+                        except ValueError:
+                            self._write_json(400, {"error": "cursor and limit must be integers"})
+                            return
                         data = manager.read_task_logs(task_id=task_id, cursor=cursor, limit=limit)
                         if data is None:
                             self._write_json(404, {"error": f"task not found: {task_id}"})
@@ -91,38 +101,82 @@ class MonitorServer:
                 parsed = urlparse(self.path)
                 path = parsed.path
 
+                if path == "/tasks/submit":
+                    try:
+                        payload = self._read_json()
+                    except ValueError as exc:
+                        self._write_json(400, {"error": str(exc)})
+                        return
+
+                    submit_mode_raw = payload.get("submit_mode", "append")
+                    submit_mode = str(submit_mode_raw)
+                    tasks_payload = payload.get("tasks")
+                    host_state_before = manager.snapshot_health()["host_state"]
+                    result = manager.submit_tasks(tasks_payload=tasks_payload, submit_mode=submit_mode)
+                    host_state_after_expected = manager.snapshot_health()["host_state"]
+
+                    status_code = 200 if result.get("accepted") else 400
+                    response = {
+                        "accepted": bool(result.get("accepted")),
+                        "command": "submit_tasks",
+                        "requested_at": now_iso(),
+                        "host_state_before": host_state_before,
+                        "host_state_after_expected": host_state_after_expected,
+                        "message": result.get("message", ""),
+                        "reason_code": result.get("reason_code", ""),
+                        "affected_task_ids": result.get("accepted_task_ids", []),
+                        "submit_mode": result.get("submit_mode", submit_mode),
+                    }
+                    self._write_json(status_code, response)
+                    return
+
                 control_map = {
                     "/control/start": "start",
                     "/control/graceful-stop": "graceful_stop",
                     "/control/force-stop": "force_stop",
                     "/control/rerun": "rerun",
+                    "/control/shutdown": "shutdown",
                 }
                 command = control_map.get(path)
                 if command is None:
                     self._write_json(404, {"error": f"unknown endpoint: {path}"})
                     return
 
-                payload = self._read_json()
+                try:
+                    payload = self._read_json()
+                except ValueError as exc:
+                    self._write_json(400, {"error": str(exc)})
+                    return
+
                 task_ids = payload.get("task_ids") if isinstance(payload, dict) else None
                 if not isinstance(task_ids, list):
                     task_ids = []
 
-                host_state_before = manager.snapshot_health()["host_state"]
-                result = manager.control(command, task_ids)
+                options: dict[str, Any] = {}
+                if command == "shutdown":
+                    options = {
+                        "mode": payload.get("mode", "drain"),
+                        "timeout_sec": payload.get("timeout_sec"),
+                    }
 
-                message = "accepted" if result.get("accepted") else "ignored"
+                host_state_before = manager.snapshot_health()["host_state"]
+                result = manager.control(command, task_ids, options=options)
+                host_state_after_expected = manager.snapshot_health()["host_state"]
+
                 response = {
                     "accepted": bool(result.get("accepted")),
                     "command": command,
                     "requested_at": now_iso(),
                     "host_state_before": host_state_before,
-                    "message": message,
+                    "host_state_after_expected": host_state_after_expected,
+                    "message": result.get("message", "accepted" if result.get("accepted") else "ignored"),
+                    "reason_code": result.get("reason_code", ""),
                     "affected_task_ids": result.get("affected_task_ids", []),
                 }
                 if "rejected_task_ids" in result:
                     response["rejected_task_ids"] = result["rejected_task_ids"]
 
-                self._write_json(200, response)
+                self._write_json(200 if result.get("accepted") else 400, response)
 
         self._httpd = ThreadingHTTPServer((self.host, self.port), Handler)
         self._thread = Thread(target=self._httpd.serve_forever, daemon=True)

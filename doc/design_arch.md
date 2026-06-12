@@ -24,6 +24,9 @@ The project provides the following core capabilities:
 6. Manual lifecycle intervention: control commands drive human-triggered transitions (for example stop, start/resume, and rerun), including `starting|running -> aborted` under force-stop policy.
 7. Rerun lifecycle operation: user can rerun `succeeded|failed` tasks by moving them back to `queued`.
 8. Monitoring integration: provide stable status/log interfaces for CLI/GUI/API consumers.
+9. Resident host mode: host process stays alive after one execution round and enters idle state for later resume.
+10. Runtime task-list submission: users can submit new task lists through API without restarting the host process.
+11. Unified shutdown operation: GUI/CLI/test scripts can request process shutdown through one control interface.
 
 ## 3. High-Level Component View
 
@@ -62,7 +65,9 @@ The project provides the following core capabilities:
       - Receives runtime control commands.
       - Owns human-triggered stop/abort orchestration path.
       - Owns host start/resume and rerun command orchestration.
+   - Owns task submission orchestration (`append|replace`) constraints.
       - Coordinates host-level stop behavior.
+   - Coordinates unified host shutdown behavior.
    - Details: [design_control_plane.md](design_control_plane.md)
    - Implementation: integrated in [../task_manager.py](../task_manager.py) and [../task_host.py](../task_host.py)
 - MonitorAPI
@@ -95,6 +100,9 @@ The project provides the following core capabilities:
 7. Monitor read/control API surface:
    - Doc: [design_monitor_api.md](design_monitor_api.md)
    - Code: [../monitor_api.py](../monitor_api.py)
+8. Runtime task submission and shutdown control:
+   - Doc: [design_control_plane.md](design_control_plane.md), [design_monitor_api.md](design_monitor_api.md)
+   - Code: [../task_manager.py](../task_manager.py), [../monitor_api.py](../monitor_api.py)
 
 
 ---

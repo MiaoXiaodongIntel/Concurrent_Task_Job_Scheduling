@@ -25,7 +25,8 @@ class HostState(str, Enum):
     RUNNING = "RUNNING"
     DRAINING = "DRAINING"
     STOPPING_FORCE = "STOPPING_FORCE"
-    STOPPED = "STOPPED"
+    IDLE = "IDLE"
+    SHUTTING_DOWN = "SHUTTING_DOWN"
 
 
 class TaskStatus(str, Enum):
@@ -241,10 +242,53 @@ class TaskManager:
         self._reader_threads: dict[str, list[threading.Thread]] = {}
         self._last_status_emit_monotonic = 0.0
         self._resource_probe = _SystemResourceProbe(base_path=log_dir)
+        self._shutdown_requested = False
+        self._shutdown_mode: str = "drain"
+        self._shutdown_deadline_monotonic: float | None = None
+        self._shutdown_force_applied = False
+
+    @staticmethod
+    def _build_task_from_payload(item: object, fallback_index: int) -> TaskJob:
+        if not isinstance(item, dict):
+            raise ValueError(f"task index {fallback_index} is not an object")
+
+        maybe_id = item.get("task_id")
+        task_id = str(maybe_id).strip() if maybe_id is not None else f"job-{fallback_index:03d}"
+        if not task_id:
+            task_id = f"job-{fallback_index:03d}"
+
+        commands_raw = item.get("commands")
+        if not isinstance(commands_raw, list) or not commands_raw:
+            raise ValueError(f"task {task_id} must include non-empty 'commands' list")
+
+        commands: list[str] = []
+        for command in commands_raw:
+            if not isinstance(command, str) or not command.strip():
+                raise ValueError(f"task {task_id} has invalid command: {command!r}")
+            commands.append(command)
+
+        return TaskJob(task_id=task_id, commands=commands)
+
+    @staticmethod
+    def _parse_task_payload(tasks_payload: object) -> list[TaskJob]:
+        if not isinstance(tasks_payload, list) or not tasks_payload:
+            raise ValueError("tasks must be a non-empty list")
+
+        built: list[TaskJob] = []
+        seen_ids: set[str] = set()
+        for idx, item in enumerate(tasks_payload, start=1):
+            task = TaskManager._build_task_from_payload(item, idx)
+            if task.task_id in seen_ids:
+                raise ValueError(f"duplicate task_id in payload: {task.task_id}")
+            seen_ids.add(task.task_id)
+            built.append(task)
+        return built
 
     def start(self) -> bool:
         with self._lock:
-            if self.host_state not in {HostState.NOT_RUN, HostState.STOPPED}:
+            if self._shutdown_requested:
+                return False
+            if self.host_state not in {HostState.NOT_RUN, HostState.IDLE}:
                 return False
             self.host_state = HostState.RUNNING
         print("[HOST] start accepted -> state=RUNNING")
@@ -252,6 +296,8 @@ class TaskManager:
 
     def graceful_stop(self) -> bool:
         with self._lock:
+            if self._shutdown_requested:
+                return False
             if self.host_state != HostState.RUNNING:
                 return False
             self.host_state = HostState.DRAINING
@@ -260,6 +306,8 @@ class TaskManager:
 
     def force_stop(self) -> bool:
         with self._lock:
+            if self._shutdown_requested:
+                return False
             if self.host_state not in {HostState.RUNNING, HostState.DRAINING}:
                 return False
             self.host_state = HostState.STOPPING_FORCE
@@ -289,6 +337,127 @@ class TaskManager:
 
         print("[HOST] force_stop accepted -> state=STOPPING_FORCE")
         return True
+
+    def shutdown(self, mode: str = "drain", timeout_sec: float | None = None) -> tuple[bool, str]:
+        requested_mode = mode.strip().lower() if mode else "drain"
+        if requested_mode not in {"drain", "force"}:
+            return False, "invalid_shutdown_mode"
+
+        with self._lock:
+            if self._shutdown_requested:
+                return False, "shutdown_already_requested"
+
+            self._shutdown_requested = True
+            self._shutdown_mode = requested_mode
+            self._shutdown_force_applied = requested_mode == "force"
+            self.host_state = HostState.SHUTTING_DOWN
+
+            if timeout_sec is not None:
+                timeout_value = max(0.0, float(timeout_sec))
+                self._shutdown_deadline_monotonic = time.monotonic() + timeout_value
+            else:
+                self._shutdown_deadline_monotonic = None
+
+            if requested_mode == "force":
+                self._abort_inflight_locked(reason="shutdown_force")
+
+        print(f"[HOST] shutdown accepted mode={requested_mode} -> state=SHUTTING_DOWN")
+        return True, "accepted"
+
+    def _abort_inflight_locked(self, reason: str) -> None:
+        for task in self.tasks.values():
+            if task.status == TaskStatus.STARTING:
+                self._set_task_status(task, TaskStatus.ABORTED)
+                task.abort_reason = f"{reason}_during_starting"
+                task.ended_at = now_iso()
+
+        handles = list(self._running_handles.items())
+        for task_id, handle in handles:
+            task = self.tasks[task_id]
+            if task.status == TaskStatus.RUNNING:
+                self._set_task_status(task, TaskStatus.ABORTED)
+                task.abort_reason = reason
+                task.ended_at = now_iso()
+            task.pid = handle.process.pid
+
+        for task_id, handle in handles:
+            try:
+                handle.process.terminate()
+            except OSError:
+                pass
+            print(f"[HOST] terminating task={task_id} pid={handle.process.pid} reason={reason}")
+
+    def submit_tasks(self, tasks_payload: object, submit_mode: str = "append") -> dict[str, Any]:
+        mode = submit_mode.strip().lower() if isinstance(submit_mode, str) else "append"
+        if mode not in {"append", "replace"}:
+            return {
+                "accepted": False,
+                "submit_mode": mode,
+                "accepted_task_ids": [],
+                "reason_code": "invalid_submit_mode",
+                "message": "submit_mode must be append or replace",
+            }
+
+        try:
+            parsed_tasks = self._parse_task_payload(tasks_payload)
+        except ValueError as exc:
+            return {
+                "accepted": False,
+                "submit_mode": mode,
+                "accepted_task_ids": [],
+                "reason_code": "invalid_task_payload",
+                "message": str(exc),
+            }
+
+        with self._lock:
+            if self._shutdown_requested:
+                return {
+                    "accepted": False,
+                    "submit_mode": mode,
+                    "accepted_task_ids": [],
+                    "reason_code": "host_shutting_down",
+                    "message": "cannot submit tasks while shutting down",
+                }
+
+            inflight = self._inflight_count()
+            if mode == "replace" and inflight > 0:
+                return {
+                    "accepted": False,
+                    "submit_mode": mode,
+                    "accepted_task_ids": [],
+                    "reason_code": "inflight_exists",
+                    "message": "replace is rejected while tasks are running or starting",
+                }
+
+            if mode == "append":
+                duplicates = [task.task_id for task in parsed_tasks if task.task_id in self.tasks]
+                if duplicates:
+                    return {
+                        "accepted": False,
+                        "submit_mode": mode,
+                        "accepted_task_ids": [],
+                        "reason_code": "duplicate_task_id",
+                        "message": f"duplicate task_id exists: {duplicates}",
+                    }
+                for task in parsed_tasks:
+                    self.tasks[task.task_id] = task
+                    self.queue.append(task.task_id)
+            else:
+                self.tasks = {task.task_id: task for task in parsed_tasks}
+                self.queue = [task.task_id for task in parsed_tasks]
+                self._running_handles.clear()
+                self._reader_threads.clear()
+                self._log_files.clear()
+
+        accepted_task_ids = [task.task_id for task in parsed_tasks]
+        print(f"[HOST] submit accepted mode={mode} tasks={accepted_task_ids}")
+        return {
+            "accepted": True,
+            "submit_mode": mode,
+            "accepted_task_ids": accepted_task_ids,
+            "reason_code": "accepted",
+            "message": "tasks accepted",
+        }
 
     def rerun(self, task_ids: list[str]) -> tuple[list[str], list[str]]:
         accepted: list[str] = []
@@ -330,17 +499,40 @@ class TaskManager:
             )
         task.status = new_status
 
-    def control(self, command: str, task_ids: list[str] | None = None) -> dict[str, Any]:
+    def control(
+        self,
+        command: str,
+        task_ids: list[str] | None = None,
+        options: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         cmd = command.strip().lower()
         if cmd == "start":
             ok = self.start()
-            return {"accepted": ok, "command": "start", "affected_task_ids": []}
+            return {
+                "accepted": ok,
+                "command": "start",
+                "affected_task_ids": [],
+                "message": "accepted" if ok else "ignored: host state not startable",
+                "reason_code": "accepted" if ok else "invalid_state",
+            }
         if cmd == "graceful_stop":
             ok = self.graceful_stop()
-            return {"accepted": ok, "command": "graceful_stop", "affected_task_ids": []}
+            return {
+                "accepted": ok,
+                "command": "graceful_stop",
+                "affected_task_ids": [],
+                "message": "accepted" if ok else "ignored: host is not RUNNING",
+                "reason_code": "accepted" if ok else "invalid_state",
+            }
         if cmd == "force_stop":
             ok = self.force_stop()
-            return {"accepted": ok, "command": "force_stop", "affected_task_ids": []}
+            return {
+                "accepted": ok,
+                "command": "force_stop",
+                "affected_task_ids": [],
+                "message": "accepted" if ok else "ignored: host is not RUNNING or DRAINING",
+                "reason_code": "accepted" if ok else "invalid_state",
+            }
         if cmd == "rerun":
             accepted, rejected = self.rerun(task_ids or [])
             return {
@@ -348,12 +540,49 @@ class TaskManager:
                 "command": "rerun",
                 "affected_task_ids": accepted,
                 "rejected_task_ids": rejected,
+                "message": "accepted" if accepted else "ignored: no succeeded/failed task selected",
+                "reason_code": "accepted" if accepted else "no_eligible_task",
+            }
+        if cmd == "shutdown":
+            opts = options or {}
+            mode_raw = opts.get("mode", "drain")
+            mode = str(mode_raw).strip().lower()
+            timeout_raw = opts.get("timeout_sec")
+
+            timeout_sec: float | None = None
+            if timeout_raw is not None:
+                try:
+                    timeout_sec = float(timeout_raw)
+                except (TypeError, ValueError):
+                    return {
+                        "accepted": False,
+                        "command": "shutdown",
+                        "affected_task_ids": [],
+                        "message": "ignored: timeout_sec must be a number",
+                        "reason_code": "invalid_timeout",
+                    }
+
+            ok, reason = self.shutdown(mode=mode, timeout_sec=timeout_sec)
+            if ok:
+                message = "accepted"
+            elif reason == "invalid_shutdown_mode":
+                message = "ignored: mode must be drain or force"
+            else:
+                message = "ignored: shutdown already requested"
+
+            return {
+                "accepted": ok,
+                "command": "shutdown",
+                "affected_task_ids": [],
+                "message": message,
+                "reason_code": "accepted" if ok else reason,
             }
         return {
             "accepted": False,
             "command": cmd,
             "affected_task_ids": [],
             "message": f"Unknown command: {command}",
+            "reason_code": "unknown_command",
         }
 
     def snapshot_health(self) -> dict[str, Any]:
@@ -626,35 +855,47 @@ class TaskManager:
 
     def _all_done(self) -> bool:
         with self._lock:
-            for task in self.tasks.values():
-                if task.status not in {TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.ABORTED}:
-                    return False
-            # A task can be marked aborted before its child process is fully reaped.
-            # Keep the host loop alive until all running handles are cleaned up.
-            if self._running_handles:
-                return False
-        return True
+            return not self.queue and self._inflight_count() == 0
 
     def _inflight_count(self) -> int:
-        with self._lock:
-            status_inflight = sum(
-                1
-                for t in self.tasks.values()
-                if t.status in {TaskStatus.STARTING, TaskStatus.RUNNING}
-            )
-            # During force-stop, task status may transition to aborted before watcher
-            # threads finish process wait/cleanup; running handles still represent
-            # in-flight work that must complete before host can be considered stopped.
-            return max(status_inflight, len(self._running_handles))
+        status_inflight = sum(
+            1
+            for t in self.tasks.values()
+            if t.status in {TaskStatus.STARTING, TaskStatus.RUNNING}
+        )
+        # During force-stop, task status may transition to aborted before watcher
+        # threads finish process wait/cleanup; running handles still represent
+        # in-flight work that must complete before host can be considered settled.
+        return max(status_inflight, len(self._running_handles))
 
     def _advance_host_state(self) -> None:
         with self._lock:
-            if self.host_state == HostState.DRAINING and self._inflight_count() == 0:
-                self.host_state = HostState.STOPPED
-                print("[HOST] draining complete -> state=STOPPED")
-            elif self.host_state == HostState.STOPPING_FORCE and self._inflight_count() == 0:
-                self.host_state = HostState.STOPPED
-                print("[HOST] force stop complete -> state=STOPPED")
+            inflight = self._inflight_count()
+            if self.host_state == HostState.DRAINING and inflight == 0:
+                self.host_state = HostState.IDLE
+                print("[HOST] draining complete -> state=IDLE")
+                return
+            if self.host_state == HostState.STOPPING_FORCE and inflight == 0:
+                self.host_state = HostState.IDLE
+                print("[HOST] force stop complete -> state=IDLE")
+                return
+            if self.host_state == HostState.RUNNING and inflight == 0 and not self.queue:
+                self.host_state = HostState.IDLE
+                print("[HOST] execution round completed -> state=IDLE")
+                return
+            if self.host_state == HostState.SHUTTING_DOWN:
+                if self._shutdown_mode == "drain":
+                    if (
+                        self._shutdown_deadline_monotonic is not None
+                        and time.monotonic() >= self._shutdown_deadline_monotonic
+                        and not self._shutdown_force_applied
+                    ):
+                        self._shutdown_force_applied = True
+                        self._abort_inflight_locked(reason="shutdown_timeout_force")
+                        print("[HOST] shutdown drain timeout reached -> escalating to force")
+                elif self._shutdown_mode == "force" and not self._shutdown_force_applied:
+                    self._shutdown_force_applied = True
+                    self._abort_inflight_locked(reason="shutdown_force")
 
     def run(self) -> int:
         print(
@@ -667,9 +908,9 @@ class TaskManager:
             self._try_schedule()
             self._advance_host_state()
 
-            if self._all_done():
-                with self._lock:
-                    self.host_state = HostState.STOPPED
+            with self._lock:
+                should_exit = self._shutdown_requested and self._inflight_count() == 0
+            if should_exit:
                 break
 
             time.sleep(self.scheduler_tick)
@@ -679,15 +920,15 @@ class TaskManager:
         failed = [t for t in self.tasks.values() if t.status == TaskStatus.FAILED]
         aborted = [t for t in self.tasks.values() if t.status == TaskStatus.ABORTED]
 
-        print("[HOST] All tasks completed.")
+        print("[HOST] Shutdown completed.")
         print(
-            "[HOST] Summary: "
+            "[HOST] Final summary: "
             f"succeeded={sum(1 for t in self.tasks.values() if t.status == TaskStatus.SUCCEEDED)} "
             f"failed={len(failed)} aborted={len(aborted)}"
         )
 
         self._print_task_table()
-        return 1 if failed or aborted else 0
+        return 0
 
     def _print_task_table(self) -> None:
         print("[HOST] Task results:")

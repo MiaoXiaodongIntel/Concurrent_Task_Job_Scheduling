@@ -69,7 +69,8 @@ Host states:
 2. `RUNNING`
 3. `DRAINING`
 4. `STOPPING_FORCE`
-5. `STOPPED`
+5. `IDLE`
+6. `SHUTTING_DOWN`
 
 Host transition policy:
 
@@ -77,9 +78,12 @@ Host transition policy:
 2. `RUNNING -> DRAINING` by graceful-stop command.
 3. `RUNNING -> STOPPING_FORCE` by force-stop command.
 4. `DRAINING -> STOPPING_FORCE` by force-stop command.
-5. `DRAINING -> STOPPED` when no in-flight task remains.
-6. `STOPPING_FORCE -> STOPPED` after force-stop handling is completed.
-7. `STOPPED -> RUNNING` by explicit start/resume command to continue remaining queued work.
+5. `RUNNING -> IDLE` when no queued task and no in-flight task remain.
+6. `DRAINING -> IDLE` when no in-flight task remains.
+7. `STOPPING_FORCE -> IDLE` after force-stop handling is completed.
+8. `IDLE -> RUNNING` by explicit start/resume command.
+9. `NOT_RUN|RUNNING|DRAINING|STOPPING_FORCE|IDLE -> SHUTTING_DOWN` by shutdown command.
+10. `SHUTTING_DOWN` ends host loop when no in-flight task remains.
 
 ## 4. Data Ownership
 
@@ -90,6 +94,8 @@ TaskManager owns:
 3. task-to-process mapping for active jobs
 4. runtime timestamps for status and output activity
 5. per-task log file path
+6. runtime task submission acceptance (`append|replace`) with validation constraints
+7. shutdown progression metadata (mode/timeout escalation state)
 
 ## 5. Interface to Other Modules
 
@@ -118,7 +124,8 @@ Outbound views:
 2. `_emit_status_if_due()` emits periodic host health snapshot.
 3. `_try_schedule()` queries scheduler and starts selected tasks.
 4. `_watch_task()` finalizes each task and applies terminal status.
-5. `_all_done()` terminates host loop when all tasks are terminal.
+5. `_advance_host_state()` moves host among `RUNNING|DRAINING|STOPPING_FORCE|IDLE|SHUTTING_DOWN`.
+6. Host loop exits only when shutdown is requested and in-flight work reaches zero.
 
 ## 8. Lifecycle Requirement Mapping
 
@@ -126,6 +133,8 @@ Outbound views:
 2. Requirement 2.5 (automatic progression): consumed from Scheduler/Runner events and committed here.
 3. Requirement 2.6 (manual intervention): executed via ControlPlane commands and committed here.
 4. Requirement extension (rerun): `succeeded|failed` tasks can re-enter queue by command.
+5. Requirement extension (resident execution): execution round completion transitions host to `IDLE` without process exit.
+6. Requirement extension (runtime task-list submission): new task payloads can be accepted through control surface while host stays alive.
 
 Related docs:
 

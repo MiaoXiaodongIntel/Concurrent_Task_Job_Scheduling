@@ -68,7 +68,7 @@ Simple tuning guidance for GUI-friendly hosts:
 
 Scheduling tick interval is configured in `TaskManager`, not inside `Scheduler`.
 
-When host is `NOT_RUN`, `DRAINING`, `STOPPING_FORCE`, or `STOPPED`, TaskManager passes `host_running=false` and scheduler admission is suspended.
+When host is `NOT_RUN`, `DRAINING`, `STOPPING_FORCE`, `IDLE`, or `SHUTTING_DOWN`, TaskManager passes `host_running=false` and scheduler admission is suspended.
 
 ## 7. Interface with TaskManager
 
