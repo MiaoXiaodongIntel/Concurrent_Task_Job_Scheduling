@@ -2,6 +2,8 @@
 
 Back to architecture: [design_arch.md](design_arch.md)
 
+Implementation file: [../task_runner.py](../task_runner.py)
+
 ## 1. Responsibility
 
 TaskRunner is responsible for executing a single task job and emitting runtime events.
@@ -10,15 +12,13 @@ TaskRunner is responsible for executing a single task job and emitting runtime e
 
 Inputs:
 
-1. `task_id`
-2. ordered `commands`
-3. runtime context (cwd/env/encoding policy)
+1. ordered `commands`
 
 Outputs:
 
-1. process metadata (`pid`, start/end timestamps)
-2. stream events (`stdout`, `stderr`)
-3. completion event with `exit_code`
+1. `RunningTaskHandle(process, script_path)` from `start_task(...)`
+2. synchronous `CompletedProcess` from `run_session(...)`
+3. process streams and exit code consumed by `TaskManager`
 
 ## 3. Execution Contract
 
@@ -34,9 +34,10 @@ Outputs:
 
 ## 5. Integration Points
 
-1. Consumes launch requests from TaskManager/Scheduler.
-2. Publishes stream and completion events to TaskManager.
-3. Exposes process identity for ControlPlane termination path.
+1. `TaskManager` calls `start_task(commands)` for async orchestration.
+2. `TaskManager` owns stream-reader threads and completion wait.
+3. `cleanup(handle)` removes generated temporary script files.
+4. `run_session(commands)` is a synchronous helper reused by tooling.
 
 Related docs:
 

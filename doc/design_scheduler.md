@@ -2,42 +2,48 @@
 
 Back to architecture: [design_arch.md](design_arch.md)
 
+Implementation file: [../scheduler.py](../scheduler.py)
+
 ## 1. Responsibility
 
-Scheduler controls task admission from queue to execution.
+`Scheduler` controls admission from queued task IDs to start candidates.
 
 ## 2. Inputs
 
-1. queued task list
-2. running count
-3. host lifecycle state
-4. scheduler configuration and resource signals
+1. `queue: list[str]` (mutable FIFO task_id queue)
+2. `running_count: int`
+3. `host_running: bool`
+4. `is_runnable: Callable[[str], bool]`
 
 ## 3. Outputs
 
-1. per-tick start decisions
-2. admission pause/continue decisions
+1. `list[str]` of selected task IDs for current scheduling tick
 
-## 4. Admission Policy (Conceptual)
+## 4. Concrete Admission Policy (Current Implementation)
 
-1. Apply hard concurrency cap.
-2. Apply optional startup throttling per tick.
-3. Apply resource guardrail checks before admitting new tasks.
-4. Maintain host responsiveness as first constraint.
+1. If host is not running: return empty list.
+2. Enforce hard cap `max_concurrency`.
+3. Select from queue in FIFO order.
+4. Skip non-runnable task IDs using `is_runnable`.
+5. Stop selecting when available slots are exhausted.
 
-## 5. Configurable Knobs
+## 5. Side Effects and Constraints
 
-1. `max_concurrency_hard`
-2. scheduler tick interval
-3. per-tick max starts
-4. CPU/memory/disk thresholds
-5. pressure hysteresis window
+1. `pick_next_tasks` consumes from input `queue` by popping selected/skipped IDs.
+2. Scheduler does not modify task state directly.
+3. Current implementation has no resource-threshold guardrails.
 
-## 6. Interface with TaskManager
+## 6. Configurable Knobs
 
-1. Reads queue and runtime counters.
-2. Emits start intents for specific task IDs.
-3. Must not mutate task terminal status directly.
+1. `max_concurrency`
+
+Scheduling tick interval is configured in `TaskManager`, not inside `Scheduler`.
+
+## 7. Interface with TaskManager
+
+1. `TaskManager._try_schedule()` calls `Scheduler.pick_next_tasks(...)`.
+2. Returned task IDs are started by `TaskManager._start_task(...)`.
+3. Status transitions remain exclusively in `TaskManager`.
 
 Related docs:
 

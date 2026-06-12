@@ -13,6 +13,9 @@
 4. [Entry 03 - Multi-Task Requirement Expansion](#entry-03)
 5. [Entry 04 - Resource-Aware Admission Requirement](#entry-04)
 6. [Entry 05 - Host Stop Semantics Requirement](#entry-05)
+7. [Entry 06 - Architecture Documentation Split](#entry-06)
+8. [Entry 07 - Runtime Module Boundary Refactor](#entry-07)
+9. [Entry 08 - Design-to-Implementation Traceability](#entry-08)
 
 ## Change Log Rules
 
@@ -82,4 +85,37 @@ Each entry uses:
 - Why improved:
   - Operational safety for emergency and maintenance scenarios.
   - Predictable lifecycle control for scheduler process.
+
+## Entry 06
+
+- Change summary: Reorganized design documentation into high-level architecture and module-focused detail documents.
+- Entry type: Design Modification
+- Original design -> New design:
+  - Original: Mixed architecture and module-level detail in a single evolving document flow.
+  - New: `design_arch.md` keeps high-level intent while module-specific decisions are separated into dedicated documents (`design_task_manager.md`, `design_scheduler.md`, `design_task_runner.md`, and related docs).
+- Why improved:
+  - Improves readability for different audiences by separating overview from implementation-level design.
+  - Reduces coupling between architecture narrative and module evolution.
+
+## Entry 07
+
+- Change summary: Standardized runtime architecture into composition root plus three core execution modules.
+- Entry type: Design Modification
+- Original design -> New design:
+  - Original: Task orchestration behavior concentrated in a single host-oriented script concept.
+  - New: `task_host` is the composition root, with distinct module boundaries for admission (`Scheduler`), lifecycle/state machine (`TaskManager`), and execution backend (`TaskRunner`).
+- Why improved:
+  - Clarifies ownership of scheduling, state transitions, and process execution.
+  - Enables independent evolution and testing of each runtime concern.
+
+## Entry 08
+
+- Change summary: Added explicit design-to-implementation traceability between architecture documents and source modules.
+- Entry type: Design Modification
+- Original design -> New design:
+  - Original: Design navigation existed, but mapping from design decisions to concrete source files was implicit.
+  - New: Architecture and module docs now include direct links between each design area and its implementation file, including the TaskHost design document.
+- Why improved:
+  - Speeds up review by making design claims verifiable in code.
+  - Reduces drift risk between documentation and implementation.
 
