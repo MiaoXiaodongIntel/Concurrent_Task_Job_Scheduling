@@ -19,6 +19,7 @@
 10. [Entry 09 - Host Lifecycle and Rerun Extension](#entry-09)
 11. [Entry 10 - Force-Stop Escalation Refinement](#entry-10)
 12. [Entry 11 - API-First Control Channel](#entry-11)
+13. [Entry 12 - Resource Admission Guardrails Implemented](#entry-12)
 
 ## Change Log Rules
 
@@ -165,4 +166,20 @@ Each entry uses:
 - Why improved:
   - Improves GUI integration by removing dependence on terminal stdin semantics.
   - Keeps CLI ergonomics without forcing dual-control behavior in non-interactive deployments.
+
+## Entry 12
+
+- Change summary: Implemented resource-aware admission guardrails in runtime scheduler path.
+- Entry type: Design Modification
+- Original design -> New design:
+  - Original: Architecture required resource-aware admission, but concrete runtime behavior was concurrency-only in implementation.
+  - New:
+    - Scheduler now receives optional host resource usage snapshots per scheduling tick.
+    - Admission is suspended when any configured threshold is reached (`cpu`, `memory`, `disk_active_time`).
+    - TaskHost exposes runtime knobs: `--max-cpu-percent`, `--max-memory-percent`, `--max-disk-active-percent`.
+    - GUI-friendly defaults are applied: `cpu=75`, `memory=75`, `disk_active_time=80`.
+    - TaskManager provides host resource sampling and passes it into scheduler admission.
+- Why improved:
+  - Removes architecture-to-implementation drift for resource admission requirements.
+  - Provides explicit operational knobs to tune throughput vs host protection.
 

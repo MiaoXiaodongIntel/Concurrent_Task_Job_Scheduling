@@ -75,6 +75,24 @@ def parse_args() -> argparse.Namespace:
         help="Maximum concurrent running task jobs (default: 2)",
     )
     parser.add_argument(
+        "--max-cpu-percent",
+        type=float,
+        default=75.0,
+        help="Suspend new admission when host CPU usage reaches this threshold (default: 75)",
+    )
+    parser.add_argument(
+        "--max-memory-percent",
+        type=float,
+        default=75.0,
+        help="Suspend new admission when host memory usage reaches this threshold (default: 75)",
+    )
+    parser.add_argument(
+        "--max-disk-active-percent",
+        type=float,
+        default=80.0,
+        help="Suspend new admission when host disk active time reaches this threshold (default: 80)",
+    )
+    parser.add_argument(
         "--scheduler-tick",
         type=float,
         default=0.5,
@@ -177,7 +195,12 @@ def main() -> int:
         print(f"Failed to load tasks file: {exc}", file=sys.stderr)
         return 2
 
-    scheduler = Scheduler(max_concurrency=args.max_concurrency)
+    scheduler = Scheduler(
+        max_concurrency=args.max_concurrency,
+        max_cpu_percent=args.max_cpu_percent,
+        max_memory_percent=args.max_memory_percent,
+        max_disk_active_percent=args.max_disk_active_percent,
+    )
     runner = TaskRunner()
     manager = TaskManager(
         tasks=tasks,

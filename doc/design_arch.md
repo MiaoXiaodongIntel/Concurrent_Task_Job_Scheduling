@@ -54,7 +54,7 @@ The project provides the following core capabilities:
    - Responsibilities:
       - Chooses when and how many queued jobs to start.
       - Produces admission decisions only, without directly mutating terminal states.
-      - Applies concurrency and resource-related admission rules.
+   - Applies concurrency and host-resource admission rules (CPU/memory thresholds + disk active-time threshold).
    - Details: [design_scheduler.md](design_scheduler.md)
    - Implementation: [../scheduler.py](../scheduler.py)
 - ControlPlane
@@ -99,4 +99,4 @@ The project provides the following core capabilities:
 
 ---
 
-Last updated: 2026-06-13
+Last updated: 2026-06-12

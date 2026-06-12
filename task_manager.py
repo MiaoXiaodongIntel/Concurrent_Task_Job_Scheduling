@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import ctypes
+import os
+import re
+import subprocess
 import threading
 import time
 from dataclasses import dataclass, field
@@ -8,7 +12,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, TextIO
 
-from scheduler import Scheduler
+from scheduler import ResourceUsage, Scheduler
 from task_runner import RunningTaskHandle, TaskRunner
 
 
@@ -73,6 +77,144 @@ class TaskJob:
         }
 
 
+class _SystemResourceProbe:
+    def __init__(self, base_path: Path) -> None:
+        self._base_path = base_path
+        self._last_cpu_sample: tuple[int, int] | None = None
+        self._disk_active_percent = 0.0
+        self._disk_lock = threading.Lock()
+
+        if os.name == "nt":
+            sampler = threading.Thread(
+                target=self._disk_active_sampler_loop,
+                daemon=True,
+                name="disk-active-sampler",
+            )
+            sampler.start()
+
+    def snapshot(self) -> ResourceUsage:
+        return ResourceUsage(
+            cpu_percent=self._get_cpu_percent(),
+            memory_percent=self._get_memory_percent(),
+            disk_active_percent=self._get_disk_active_percent(),
+        )
+
+    def _get_cpu_percent(self) -> float:
+        if os.name != "nt":
+            return 0.0
+
+        class _FileTime(ctypes.Structure):
+            _fields_ = [
+                ("dwLowDateTime", ctypes.c_uint32),
+                ("dwHighDateTime", ctypes.c_uint32),
+            ]
+
+        idle = _FileTime()
+        kernel = _FileTime()
+        user = _FileTime()
+
+        ok = ctypes.windll.kernel32.GetSystemTimes(
+            ctypes.byref(idle),
+            ctypes.byref(kernel),
+            ctypes.byref(user),
+        )
+        if not ok:
+            return 0.0
+
+        idle_ticks = (idle.dwHighDateTime << 32) + idle.dwLowDateTime
+        kernel_ticks = (kernel.dwHighDateTime << 32) + kernel.dwLowDateTime
+        user_ticks = (user.dwHighDateTime << 32) + user.dwLowDateTime
+        total_ticks = kernel_ticks + user_ticks
+
+        if self._last_cpu_sample is None:
+            self._last_cpu_sample = (idle_ticks, total_ticks)
+            return 0.0
+
+        last_idle, last_total = self._last_cpu_sample
+        self._last_cpu_sample = (idle_ticks, total_ticks)
+
+        delta_total = total_ticks - last_total
+        delta_idle = idle_ticks - last_idle
+        if delta_total <= 0:
+            return 0.0
+
+        busy = 1.0 - (delta_idle / delta_total)
+        return min(100.0, max(0.0, busy * 100.0))
+
+    def _get_memory_percent(self) -> float:
+        if os.name == "nt":
+            class _MemoryStatusEx(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_uint32),
+                    ("dwMemoryLoad", ctypes.c_uint32),
+                    ("ullTotalPhys", ctypes.c_uint64),
+                    ("ullAvailPhys", ctypes.c_uint64),
+                    ("ullTotalPageFile", ctypes.c_uint64),
+                    ("ullAvailPageFile", ctypes.c_uint64),
+                    ("ullTotalVirtual", ctypes.c_uint64),
+                    ("ullAvailVirtual", ctypes.c_uint64),
+                    ("ullAvailExtendedVirtual", ctypes.c_uint64),
+                ]
+
+            status = _MemoryStatusEx()
+            status.dwLength = ctypes.sizeof(_MemoryStatusEx)
+            ok = ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status))
+            if ok:
+                return min(100.0, max(0.0, float(status.dwMemoryLoad)))
+
+        return 0.0
+
+    def _disk_active_sampler_loop(self) -> None:
+        while True:
+            active = self._read_disk_active_once()
+            with self._disk_lock:
+                self._disk_active_percent = active
+            time.sleep(2.0)
+
+    def _read_disk_active_once(self) -> float:
+        if os.name != "nt":
+            return 0.0
+
+        try:
+            result = subprocess.run(
+                [
+                    "typeperf",
+                    r"\PhysicalDisk(_Total)\% Disk Time",
+                    "-sc",
+                    "1",
+                    "-f",
+                    "TSV",
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=3,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return 0.0
+
+        if result.returncode != 0:
+            return 0.0
+
+        numeric = re.findall(r"[-+]?\d+(?:[\.,]\d+)?", result.stdout)
+        if not numeric:
+            return 0.0
+
+        raw = numeric[-1].replace(",", ".")
+        try:
+            value = float(raw)
+        except ValueError:
+            return 0.0
+
+        return min(100.0, max(0.0, value))
+
+    def _get_disk_active_percent(self) -> float:
+        with self._disk_lock:
+            return self._disk_active_percent
+
+
 class TaskManager:
     def __init__(
         self,
@@ -98,6 +240,7 @@ class TaskManager:
         self._log_files: dict[str, TextIO] = {}
         self._reader_threads: dict[str, list[threading.Thread]] = {}
         self._last_status_emit_monotonic = 0.0
+        self._resource_probe = _SystemResourceProbe(base_path=log_dir)
 
     def start(self) -> bool:
         with self._lock:
@@ -472,6 +615,7 @@ class TaskManager:
                 running_count=running_count,
                 host_running=self.host_state == HostState.RUNNING,
                 is_runnable=lambda task_id: self.tasks[task_id].status == TaskStatus.QUEUED,
+                get_resource_usage=self._resource_probe.snapshot,
             )
 
         for task_id in to_start:

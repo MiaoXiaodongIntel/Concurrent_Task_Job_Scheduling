@@ -22,14 +22,24 @@ Current arguments:
 
 1. `--tasks-file` (required)
 2. `--max-concurrency` (default: `2`)
-3. `--scheduler-tick` (default: `0.5`)
-4. `--status-interval` (default: `2.0`)
-5. `--log-dir` (default: `logs`)
-6. `--summary-json` (optional)
-7. `--auto-start` (optional, default: `false`)
-8. `--monitor-host` (default: `127.0.0.1`)
-9. `--monitor-port` (default: `8765`)
-10. `--interactive-cli` (optional, default: `false`)
+3. `--max-cpu-percent` (default: `75.0`)
+4. `--max-memory-percent` (default: `75.0`)
+5. `--max-disk-active-percent` (default: `80.0`)
+6. `--scheduler-tick` (default: `0.5`)
+7. `--status-interval` (default: `2.0`)
+8. `--log-dir` (default: `logs`)
+9. `--summary-json` (optional)
+10. `--auto-start` (optional, default: `false`)
+11. `--monitor-host` (default: `127.0.0.1`)
+12. `--monitor-port` (default: `8765`)
+13. `--interactive-cli` (optional, default: `false`)
+
+Threshold parameter constraints:
+
+1. `--max-cpu-percent`, `--max-memory-percent`, and `--max-disk-active-percent` are percentage thresholds.
+2. Effective runtime range is `1.0..100.0` (values are normalized by `Scheduler`).
+3. Max value is fixed at `100.0` because percentage signals cannot exceed 100 in a meaningful way.
+4. For interactive GUI/Web monitoring usage on the same host, recommended defaults are `cpu=75`, `memory=75`, `disk_active_time=80`.
 
 Startup mode contract:
 
