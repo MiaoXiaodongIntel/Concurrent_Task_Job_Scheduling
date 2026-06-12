@@ -17,10 +17,9 @@ MonitorAPI is the primary control surface for GUI integration; stdin command con
 ## 2. Read Interfaces
 
 1. `GET /health`
-2. `GET /metrics`
-3. `GET /tasks`
-4. `GET /tasks/{id}`
-5. `GET /tasks/{id}/logs?cursor=...`
+2. `GET /tasks`
+3. `GET /tasks/{id}`
+4. `GET /tasks/{id}/logs?cursor=...`
 
 Transport contract:
 
@@ -80,8 +79,7 @@ Requirement 2.4 (lifecycle governance):
 Requirement 2.5 (automatic lifecycle progression):
 
 1. `GET /tasks` and `GET /tasks/{id}` expose automatic terminal outcomes (`succeeded|failed`) and `exit_code`.
-2. `GET /metrics` exposes progression pace and backlog/running distribution.
-3. `GET /health` shows admission/execution pressure via queue and running counters.
+2. `GET /health` shows admission/execution pressure via queue and running counters.
 
 Requirement 2.6 (manual lifecycle intervention):
 
@@ -113,6 +111,7 @@ Lifecycle completion is observed through read APIs, not guaranteed by control en
 1. Supports CLI polling and future GUI pages.
 2. Must provide stable response schema for automation.
 3. Access should be restricted to local or authenticated clients.
+	- Note: this is a low-priority requirement for the current phase and should not be treated as a review blocker for now.
 
 ## 6. Requirement Boundary
 

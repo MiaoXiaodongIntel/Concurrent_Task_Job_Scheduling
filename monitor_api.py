@@ -62,10 +62,6 @@ class MonitorServer:
                     self._write_json(200, manager.snapshot_health())
                     return
 
-                if path == "/metrics":
-                    self._write_json(200, manager.snapshot_metrics())
-                    return
-
                 if path == "/tasks":
                     self._write_json(200, {"tasks": manager.snapshot_tasks()})
                     return
