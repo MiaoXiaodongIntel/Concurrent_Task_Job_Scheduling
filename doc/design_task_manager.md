@@ -19,18 +19,67 @@ Task states:
 5. `failed`
 6. `aborted`
 
+State semantics:
+
+1. `queued`: task is eligible for future admission and has not been bound to a live process in the current attempt.
+2. `starting`: task has been admitted and startup has begun (script/materialization/spawn phase), but stable running execution has not been confirmed yet.
+3. `running`: task process is alive and task output can be observed.
+4. `succeeded`: task finished with success exit code in the latest attempt.
+5. `failed`: task finished with non-zero exit code or spawn failure in the latest attempt.
+6. `aborted`: task was interrupted by manual force-stop policy.
+
 Terminal states:
 
 1. `succeeded`
 2. `failed`
 3. `aborted`
 
+### 2.1 Transition Sources and Ownership
+
+TaskManager is the only state-commit authority. It applies transitions from two sources under one validation rule set:
+
+1. Automatic events:
+	- scheduler admission and runner completion
+	- example: `running -> succeeded|failed` based on process exit code
+2. Manual events:
+	- stop/abort commands coordinated by ControlPlane
+	- example: `running -> aborted` when forced stop policy applies
+3. Rerun events:
+	- user rerun command coordinated by ControlPlane
+	- example: `succeeded|failed -> queued`
+
+Both sources must go through the same transition validator to keep lifecycle consistency.
+
+### 2.2 Task Transition Policy
+
+Baseline transitions:
+
+1. `queued -> starting`
+2. `starting -> running|failed`
+3. `running -> succeeded|failed`
+4. `running -> aborted` (force-stop path)
+5. `succeeded|failed -> queued` (rerun path)
+6. `starting -> aborted` (force-stop path)
+
 ## 3. Host Lifecycle Model
 
 Host states:
 
-1. `RUNNING`
-2. `STOPPED`
+1. `NOT_RUN`
+2. `RUNNING`
+3. `DRAINING`
+4. `STOPPING_FORCE`
+5. `STOPPED`
+
+Host transition policy:
+
+1. `NOT_RUN -> RUNNING` by explicit start command (or auto-start mode).
+2. `RUNNING -> DRAINING` by graceful-stop command.
+3. `RUNNING -> STOPPING_FORCE` by force-stop command.
+4. `DRAINING -> STOPPING_FORCE` by force-stop command.
+5. `DRAINING -> STOPPED` when no in-flight task remains.
+6. `STOPPING_FORCE -> STOPPED` after force-stop handling is completed.
+7. `STOPPED -> RUNNING` by explicit start/resume command to continue remaining queued work.
 
 ## 4. Data Ownership
 
@@ -70,6 +119,13 @@ Outbound views:
 3. `_try_schedule()` queries scheduler and starts selected tasks.
 4. `_watch_task()` finalizes each task and applies terminal status.
 5. `_all_done()` terminates host loop when all tasks are terminal.
+
+## 8. Lifecycle Requirement Mapping
+
+1. Requirement 2.4 (lifecycle governance): owned here as state model + transition invariants.
+2. Requirement 2.5 (automatic progression): consumed from Scheduler/Runner events and committed here.
+3. Requirement 2.6 (manual intervention): executed via ControlPlane commands and committed here.
+4. Requirement extension (rerun): `succeeded|failed` tasks can re-enter queue by command.
 
 Related docs:
 

@@ -25,6 +25,12 @@ Current arguments:
 4. `--status-interval` (default: `2.0`)
 5. `--log-dir` (default: `logs`)
 6. `--summary-json` (optional)
+7. `--auto-start` (optional, default: `false`)
+
+Startup mode contract:
+
+1. Default mode (`--auto-start` not set): host enters `NOT_RUN` after loading tasks and waits for explicit start command.
+2. Debug mode (`--auto-start` set): host transitions to `RUNNING` immediately after initialization.
 
 ## 3. Task Definition Contract
 
@@ -49,8 +55,9 @@ Validation guarantees:
 1. `main()` parses args and resolves paths.
 2. `load_tasks(...)` validates and returns `list[TaskJob]`.
 3. `Scheduler`, `TaskRunner`, `TaskManager` are instantiated.
-4. `TaskManager.run()` executes lifecycle loop.
-5. `build_summary(...)` writes JSON snapshot if requested.
+4. Host enters `NOT_RUN` by default (or `RUNNING` when `--auto-start` is enabled).
+5. `TaskManager.run()` executes lifecycle loop with start/stop/rerun control participation.
+6. `build_summary(...)` writes JSON snapshot if requested.
 
 ## 5. Exit Code Contract
 

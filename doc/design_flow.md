@@ -16,6 +16,8 @@
 7. [Entry 06 - Architecture Documentation Split](#entry-06)
 8. [Entry 07 - Runtime Module Boundary Refactor](#entry-07)
 9. [Entry 08 - Design-to-Implementation Traceability](#entry-08)
+10. [Entry 09 - Host Lifecycle and Rerun Extension](#entry-09)
+11. [Entry 10 - Force-Stop Escalation Refinement](#entry-10)
 
 ## Change Log Rules
 
@@ -118,4 +120,34 @@ Each entry uses:
 - Why improved:
   - Speeds up review by making design claims verifiable in code.
   - Reduces drift risk between documentation and implementation.
+
+## Entry 09
+
+- Change summary: Extended lifecycle control with paused startup mode and explicit rerun behavior.
+- Entry type: Requirement Change
+- Original design -> New design:
+  - Original: Host effectively started work immediately and manual control focused on graceful/force stop only.
+  - New:
+    - Host FSM is standardized to five states: `NOT_RUN`, `RUNNING`, `DRAINING`, `STOPPING_FORCE`, `STOPPED`.
+    - Default startup mode is `NOT_RUN`; explicit `start` command transitions host to `RUNNING`.
+    - Optional `--auto-start` supports immediate run mode for debug scenarios.
+    - `rerun` command requeues selected `succeeded|failed` tasks back to `queued`.
+    - Under `graceful_stop`, unadmitted tasks remain `queued` and can resume after a later `start`.
+- Why improved:
+  - Separates task submission from execution start for safer operator control.
+  - Enables controlled replay of completed/failed tasks without rebuilding task definitions.
+
+## Entry 10
+
+- Change summary: Refined force-stop policy to support immediate escalation during draining and startup-phase abort handling.
+- Entry type: Design Modification
+- Original design -> New design:
+  - Original: Force-stop behavior was defined mainly from `RUNNING`, with ambiguous treatment for `DRAINING` and `starting` tasks.
+  - New:
+    - Host FSM explicitly allows `DRAINING -> STOPPING_FORCE` when user issues `force_stop`.
+    - Force-stop contract explicitly allows `starting -> aborted` when startup cannot complete due to forced interruption.
+    - Force-stop continues to keep `queued` tasks in `queued` for later resume.
+- Why improved:
+  - Removes ambiguity in interruption semantics during drain windows.
+  - Makes state-machine behavior deterministic for edge phases (`starting`, `DRAINING`).
 

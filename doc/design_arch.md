@@ -19,10 +19,11 @@ The project provides the following core capabilities:
 1. Multi-task job orchestration: run multiple independent task jobs concurrently.
 2. In-task sequential execution: commands inside one task job remain sequential.
 3. Real-time observability: stream task outputs and expose runtime status.
-4. Lifecycle governance: maintain host-level and task-level lifecycle states.
-5. Controlled admission: scheduler admits queued jobs under configurable constraints.
-6. Stop control: support force stop and graceful stop semantics.
-7. Monitoring integration: provide stable status/log interfaces for CLI/GUI/API consumers.
+4. Lifecycle governance: define a unified task lifecycle model and transition invariants.
+5. Automatic lifecycle progression: scheduler and runner events drive normal state changes (for example `running -> succeeded|failed`).
+6. Manual lifecycle intervention: control commands drive human-triggered transitions (for example stop, start/resume, and rerun), including `starting|running -> aborted` under force-stop policy.
+7. Rerun lifecycle operation: user can rerun `succeeded|failed` tasks by moving them back to `queued`.
+8. Monitoring integration: provide stable status/log interfaces for CLI/GUI/API consumers.
 
 ## 3. High-Level Component View
 
@@ -42,18 +43,23 @@ The project provides the following core capabilities:
 - TaskManager
    - Responsibilities:
       - Owns task metadata and lifecycle state transitions.
+      - Commits both automatic and manual transition results under one validation model.
+      - Owns task requeue semantics for rerun (`succeeded|failed -> queued`).
       - Tracks queue/running/completed progress and task snapshots.
    - Details: [design_task_manager.md](design_task_manager.md)
    - Implementation: [../task_manager.py](../task_manager.py)
 - Scheduler
    - Responsibilities:
       - Chooses when and how many queued jobs to start.
+      - Produces admission decisions only, without directly mutating terminal states.
       - Applies concurrency and resource-related admission rules.
    - Details: [design_scheduler.md](design_scheduler.md)
    - Implementation: [../scheduler.py](../scheduler.py)
 - ControlPlane
    - Responsibilities:
       - Receives runtime control commands.
+      - Owns human-triggered stop/abort orchestration path.
+      - Owns host start/resume and rerun command orchestration.
       - Coordinates host-level stop behavior.
    - Details: [design_control_plane.md](design_control_plane.md)
    - Implementation status: planned (not implemented as independent module yet)
@@ -78,13 +84,14 @@ The project provides the following core capabilities:
 4. Process execution and PowerShell script materialization:
    - Doc: [design_task_runner.md](design_task_runner.md)
    - Code: [../task_runner.py](../task_runner.py)
+5. Manual stop and abort orchestration:
+   - Doc: [design_control_plane.md](design_control_plane.md)
+   - Code: integrated in [../task_manager.py](../task_manager.py) in current implementation stage
+6. Rerun requeue operation:
+   - Doc: [design_control_plane.md](design_control_plane.md), [design_task_manager.md](design_task_manager.md)
+   - Code: planned
 
-## 5. Acceptance Baseline (Architecture Level)
-
-1. Architecture supports concurrent task job orchestration without changing per-task sequential semantics.
-2. Lifecycle and observability contracts are stable and queryable.
-3. Module boundaries are clear enough for independent implementation and future extension.
 
 ---
 
-Last updated: 2026-06-12
+Last updated: 2026-06-13

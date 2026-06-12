@@ -12,7 +12,7 @@ Implementation file: [../scheduler.py](../scheduler.py)
 
 1. `queue: list[str]` (mutable FIFO task_id queue)
 2. `running_count: int`
-3. `host_running: bool`
+3. `host_running: bool` (`true` only when host state is `RUNNING`)
 4. `is_runnable: Callable[[str], bool]`
 
 ## 3. Outputs
@@ -38,6 +38,8 @@ Implementation file: [../scheduler.py](../scheduler.py)
 1. `max_concurrency`
 
 Scheduling tick interval is configured in `TaskManager`, not inside `Scheduler`.
+
+When host is `NOT_RUN`, `DRAINING`, `STOPPING_FORCE`, or `STOPPED`, TaskManager passes `host_running=false` and scheduler admission is suspended.
 
 ## 7. Interface with TaskManager
 
