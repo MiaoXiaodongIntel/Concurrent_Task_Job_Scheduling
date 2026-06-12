@@ -485,15 +485,23 @@ class TaskManager:
             for task in self.tasks.values():
                 if task.status not in {TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.ABORTED}:
                     return False
+            # A task can be marked aborted before its child process is fully reaped.
+            # Keep the host loop alive until all running handles are cleaned up.
+            if self._running_handles:
+                return False
         return True
 
     def _inflight_count(self) -> int:
         with self._lock:
-            return sum(
+            status_inflight = sum(
                 1
                 for t in self.tasks.values()
                 if t.status in {TaskStatus.STARTING, TaskStatus.RUNNING}
             )
+            # During force-stop, task status may transition to aborted before watcher
+            # threads finish process wait/cleanup; running handles still represent
+            # in-flight work that must complete before host can be considered stopped.
+            return max(status_inflight, len(self._running_handles))
 
     def _advance_host_state(self) -> None:
         with self._lock:
