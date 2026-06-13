@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from threading import Thread
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -24,6 +26,7 @@ class MonitorServer:
 
     def start(self) -> None:
         manager = self.manager
+        web_root = (Path(__file__).resolve().parent / "web_gui").resolve()
 
         class Handler(BaseHTTPRequestHandler):
             def _write_json(self, status: int, payload: dict[str, Any]) -> None:
@@ -33,6 +36,40 @@ class MonitorServer:
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+
+            def _write_static_file(self, file_path: Path) -> None:
+                if not file_path.exists() or not file_path.is_file():
+                    self._write_json(404, {"error": f"unknown endpoint: {self.path}"})
+                    return
+
+                mime_type, _ = mimetypes.guess_type(str(file_path))
+                content_type = mime_type or "application/octet-stream"
+                body = file_path.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", f"{content_type}; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def _serve_ui(self, path: str) -> bool:
+                if path == "/" or path in {"/ui", "/ui/"}:
+                    self._write_static_file(web_root / "index.html")
+                    return True
+
+                if not path.startswith("/ui/"):
+                    return False
+
+                relative = path[len("/ui/") :]
+                requested = (web_root / relative).resolve()
+                if web_root not in requested.parents and requested != web_root:
+                    self._write_json(403, {"error": "forbidden"})
+                    return True
+
+                if requested.is_dir():
+                    requested = requested / "index.html"
+
+                self._write_static_file(requested)
+                return True
 
             def _read_json(self) -> dict[str, Any]:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -49,7 +86,7 @@ class MonitorServer:
                     raise ValueError("json payload must be an object")
                 return payload
 
-            def log_message(self, _format: str, *_args: object) -> None:
+            def log_message(self, format: str, *args: object) -> None:
                 # Keep monitor endpoint noise out of main console logs.
                 return
 
@@ -57,6 +94,9 @@ class MonitorServer:
                 parsed = urlparse(self.path)
                 path = parsed.path
                 query = parse_qs(parsed.query)
+
+                if self._serve_ui(path):
+                    return
 
                 if path == "/health":
                     self._write_json(200, manager.snapshot_health())

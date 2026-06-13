@@ -14,6 +14,7 @@
 4. Scheduler: [doc/design_scheduler.md](doc/design_scheduler.md)
 5. ControlPlane: [doc/design_control_plane.md](doc/design_control_plane.md)
 6. MonitorAPI and Observability: [doc/design_monitor_api.md](doc/design_monitor_api.md)
+7. Web GUI and Frontend API Contract: [doc/design_gui_web.md](doc/design_gui_web.md)
 
 ### Design Flow Record
 

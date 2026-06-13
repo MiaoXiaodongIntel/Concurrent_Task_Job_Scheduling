@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Task Host Web GUI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/ui/styles.css" />
+</head>
+<body>
+  <div class="bg-shape bg-shape-a"></div>
+  <div class="bg-shape bg-shape-b"></div>
+
+  <header class="topbar">
+    <div>
+      <h1>Task Host Control Deck</h1>
+      <p id="topHostState" class="subtle">host_state: -</p>
+    </div>
+    <button id="quickRefresh" class="btn btn-secondary">Refresh Now</button>
+  </header>
+
+  <main class="layout">
+    <aside class="sidebar">
+      <button class="nav-link active" data-view="dashboardView">Dashboard</button>
+      <button class="nav-link" data-view="tasksView">Tasks</button>
+      <button class="nav-link" data-view="taskDetailView">Task Detail</button>
+      <button class="nav-link" data-view="submitView">Submit Tasks</button>
+      <button class="nav-link" data-view="controlView">Control Panel</button>
+    </aside>
+
+    <section class="content">
+      <section id="alertBox" class="alert hidden"></section>
+
+      <section id="dashboardView" class="view">
+        <h2>Dashboard</h2>
+        <div class="cards" id="summaryCards"></div>
+
+        <div class="panel">
+          <h3>Quick Host Controls</h3>
+          <div class="actions">
+            <button class="btn" data-command="start">Start</button>
+            <button class="btn" data-command="graceful_stop">Graceful Stop</button>
+            <button class="btn danger" data-command="force_stop">Force Stop</button>
+            <button class="btn warning" data-command="shutdown">Shutdown (Drain)</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>Recent Task Changes</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>task_id</th>
+                  <th>status</th>
+                  <th>started_at</th>
+                  <th>ended_at</th>
+                  <th>exit_code</th>
+                </tr>
+              </thead>
+              <tbody id="recentTaskTbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="tasksView" class="view hidden">
+        <h2>Tasks</h2>
+        <div class="panel">
+          <div class="filters">
+            <input id="taskSearchInput" placeholder="Search by task_id" />
+            <select id="statusFilterSelect">
+              <option value="all">All Status</option>
+              <option value="queued">queued</option>
+              <option value="starting">starting</option>
+              <option value="running">running</option>
+              <option value="succeeded">succeeded</option>
+              <option value="failed">failed</option>
+              <option value="aborted">aborted</option>
+            </select>
+            <button id="rerunSelectedBtn" class="btn">Rerun Selected</button>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th><input id="checkAllTasks" type="checkbox" /></th>
+                  <th>task_id</th>
+                  <th>status</th>
+                  <th>pid</th>
+                  <th>started_at</th>
+                  <th>ended_at</th>
+                  <th>exit_code</th>
+                  <th>detail</th>
+                </tr>
+              </thead>
+              <tbody id="taskTableTbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="taskDetailView" class="view hidden">
+        <h2>Task Detail</h2>
+        <div class="panel">
+          <div class="filters">
+            <select id="detailTaskSelect"></select>
+            <button id="openTaskDetailBtn" class="btn">Open</button>
+          </div>
+        </div>
+
+        <div class="panel" id="taskInfoPanel"></div>
+
+        <div class="panel">
+          <div class="filters">
+            <label><input id="autoLogRefresh" type="checkbox" checked /> Auto Log Refresh</label>
+            <label>Limit <input id="logLimitInput" type="number" min="1" value="200" /></label>
+            <button id="clearLogBtn" class="btn btn-secondary">Clear View</button>
+          </div>
+          <pre id="logViewer" class="log-viewer"></pre>
+        </div>
+      </section>
+
+      <section id="submitView" class="view hidden">
+        <h2>Submit Tasks</h2>
+        <div class="panel">
+          <div class="filters">
+            <label><input type="radio" name="submitMode" value="append" checked /> append</label>
+            <label><input type="radio" name="submitMode" value="replace" /> replace</label>
+            <button id="validateSubmitBtn" class="btn btn-secondary">Validate Payload</button>
+            <button id="submitTasksBtn" class="btn">Submit</button>
+          </div>
+          <textarea id="submitJsonEditor" class="json-editor" spellcheck="false"></textarea>
+          <pre id="submitResult" class="result-box"></pre>
+        </div>
+      </section>
+
+      <section id="controlView" class="view hidden">
+        <h2>Control Panel</h2>
+        <div class="panel">
+          <h3>Host Commands</h3>
+          <div class="actions">
+            <button class="btn" data-command="start">Start</button>
+            <button class="btn" data-command="graceful_stop">Graceful Stop</button>
+            <button class="btn danger" data-command="force_stop">Force Stop</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>Shutdown</h3>
+          <div class="filters">
+            <select id="shutdownModeSelect">
+              <option value="drain">drain</option>
+              <option value="force">force</option>
+            </select>
+            <input id="shutdownTimeoutInput" placeholder="timeout_sec (optional)" />
+            <button id="shutdownBtn" class="btn warning">Shutdown</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>Command Responses</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>time</th>
+                  <th>command</th>
+                  <th>accepted</th>
+                  <th>reason_code</th>
+                  <th>message</th>
+                  <th>affected_task_ids</th>
+                </tr>
+              </thead>
+              <tbody id="commandHistoryTbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <script src="/ui/app.js"></script>
+</body>
+</html>
