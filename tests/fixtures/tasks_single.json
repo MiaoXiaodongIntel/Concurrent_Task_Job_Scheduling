@@ -1,0 +1,11 @@
+{
+  "tasks": [
+    {
+      "task_id": "single-1",
+      "commands": [
+        "Write-Host 'single-1 start'",
+        "Write-Host 'single-1 done'"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "tasks": [
+    {
+      "task_id": "demo-ui-1",
+      "commands": [
+        "Write-Host 'demo-ui-1 start'; Start-Sleep -Seconds 1",
+        "Write-Host 'demo-ui-1 done'"
+      ]
+    },
+    {
+      "task_id": "demo-ui-2",
+      "commands": [
+        "Write-Host 'demo-ui-2 start'; Start-Sleep -Seconds 2",
+        "Write-Host 'demo-ui-2 done'"
+      ]
+    }
+  ]
+}

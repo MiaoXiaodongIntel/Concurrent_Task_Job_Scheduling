@@ -1,0 +1,18 @@
+{
+  "tasks": [
+    {
+      "task_id": "replace-1",
+      "commands": [
+        "Write-Host 'replace-1 start'",
+        "Write-Host 'replace-1 done'"
+      ]
+    },
+    {
+      "task_id": "replace-2",
+      "commands": [
+        "Write-Host 'replace-2 start'",
+        "Write-Host 'replace-2 done'"
+      ]
+    }
+  ]
+}
