@@ -334,3 +334,96 @@ textarea {
     grid-template-columns: repeat(3, minmax(100px, 1fr));
   }
 }
+
+/* ── Disabled button state ─────────────────────────────── */
+button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  filter: grayscale(40%);
+}
+
+/* ── Empty state guidance ─────────────────────────────── */
+.empty-state {
+  text-align: center;
+  padding: 28px 16px;
+  color: var(--ink-soft);
+}
+.empty-state p {
+  margin: 6px 0;
+}
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+/* ── Breadcrumb navigation ─────────────────────────────── */
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 12px;
+  font-size: 22px;
+  font-weight: 700;
+}
+.breadcrumb-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+.breadcrumb-link:hover {
+  filter: brightness(1.15);
+}
+.breadcrumb-sep {
+  color: var(--ink-soft);
+  font-weight: 400;
+}
+.breadcrumb-current {
+  color: var(--ink);
+}
+
+/* ── Host state badge (Control Panel) ─────────────────── */
+.host-badge {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 999px;
+  margin-left: 8px;
+  background: var(--line);
+  color: var(--ink-soft);
+  vertical-align: middle;
+  font-family: "JetBrains Mono", monospace;
+}
+.host-badge.not_run       { background: #6f7f7b; color: #fff; }
+.host-badge.running       { background: #157a6e; color: #fff; }
+.host-badge.draining      { background: #ac6a12; color: #fff; }
+.host-badge.stopping_force { background: #b33a3a; color: #fff; }
+.host-badge.shutting_down  { background: #8c4f9e; color: #fff; }
+.host-badge.idle          { background: #3f8f53; color: #fff; }
+
+/* ── Topbar refresh area ─────────────────────────────── */
+.topbar-refresh {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.refresh-time {
+  font-size: 11px;
+  color: var(--ink-soft);
+  font-family: "JetBrains Mono", monospace;
+}
+
+

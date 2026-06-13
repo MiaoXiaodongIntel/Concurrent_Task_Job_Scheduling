@@ -24,6 +24,8 @@
 14. [Entry 14 - Startup Contract Simplification](#entry-14)
 15. [Entry 15 - Host State Machine IDLE Removal](#entry-15)
 16. [Entry 16 - Task Aborted State Made Recoverable](#entry-16)
+17. [Entry 17 - Web GUI UX Conventions Established](#entry-17)
+18. [Entry 18 - Host Commands Consolidated into Dashboard](#entry-18)
 ## Change Log Rules
 
 Each entry uses:
@@ -247,4 +249,37 @@ Each entry uses:
 - Why improved:
   - Allows recovery from force-stop or force-shutdown without requiring task redefinition.
   - Makes the admission precondition explicit, removing implicit coupling between task and host state machines.
+
+## Entry 17
+
+- Change summary: Established web GUI UX conventions for command button feedback, breadcrumb navigation, new-user guidance, and refresh transparency.
+- Entry type: Design Modification
+- Original design -> New design:
+  - Original: Host command buttons had no visual distinction between enabled and disabled states and clicks on disabled buttons produced no feedback; Task Detail had no navigation path back to the Tasks list; Dashboard had no guidance for first-time users when the task list was empty; Refresh Now button had no indication of data freshness or in-progress state.
+  - New:
+    - Disabled command buttons render at 35% opacity with `cursor: not-allowed`; the `title` attribute carries a human-readable explanation of the required `host_state`.
+    - A live host-state colored badge is displayed next to the Host Commands heading, showing the current state before the user decides which button to click.
+    - Task Detail view shows a breadcrumb `Tasks › <task_id>`; clicking "Tasks" returns to the Tasks list and keeps the sidebar highlight correct.
+    - Dashboard shows an empty-state panel when no tasks are loaded, prompting the user to navigate to Submit Tasks.
+    - Refresh Now button displays "Updated Xs ago" label updated every second; during an in-flight request it changes to "Refreshing…" and is temporarily disabled.
+- Why improved:
+  - Removes silent failures: users understand why a button cannot be clicked instead of receiving no feedback.
+  - Reduces navigation friction: users can return from Task Detail without relying on the sidebar.
+  - Reduces first-time confusion: new users are directed to Submit Tasks before expecting task data.
+  - Increases system transparency: users can judge whether displayed data is stale.
+
+## Entry 18
+
+- Change summary: Consolidated all host control commands from a separate Control Panel page into Dashboard, eliminating Control Panel as a standalone navigation destination.
+- Entry type: Design Modification
+- Original design -> New design:
+  - Original: Dashboard was observation-only (summary cards, system resources, recent tasks); host commands (Start, Graceful Stop, Force Stop, Shutdown) and Command History resided in a dedicated Control Panel page; sidebar navigation had five items.
+  - New:
+    - Dashboard is the unified control hub; Host Commands panel (Start, Graceful Stop, Force Stop, Shutdown with inline drain/force select) and Command History (last 20 entries) are co-located with summary cards and resource meters.
+    - Control Panel page is removed; sidebar is reduced to four items: Dashboard / Tasks / Task Detail / Submit Tasks.
+    - Submit Tasks remains the sole page for data-entry operations (task JSON payload).
+- Why improved:
+  - Eliminates the navigation round-trip between observing state and issuing commands; operators act on state directly from the same view.
+  - Matches the operator mental model: seeing `RUNNING` and clicking Graceful Stop is a single-step decision on one screen.
+  - Simplifies the navigation structure and reduces the surface area users must learn.
 

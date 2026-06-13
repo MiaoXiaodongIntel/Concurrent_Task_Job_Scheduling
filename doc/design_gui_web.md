@@ -167,16 +167,23 @@ Shutdown-specific parameter validation:
 ## 9. GUI Information Architecture
 
 Primary pages:
-1. Dashboard
+1. Dashboard — unified observation + control (summary cards, host commands, resources, recent tasks, command history)
 2. Tasks
 3. Task Detail (with logs)
 4. Submit Tasks
-5. Control Panel
 
 Navigation style:
-1. Top bar: host status badge and quick actions
-2. Left nav: page routes
+1. Top bar: host status label, "Updated Xs ago" refresh indicator, manual Refresh Now button
+2. Left nav: 4 items — Dashboard / Tasks / Task Detail / Submit Tasks
 3. Main panel: page content
+
+UX principles applied:
+1. Dashboard is the single control hub; all host commands are co-located with the status they act on
+2. Empty-state guidance appears in Dashboard when no tasks are loaded
+3. Task Detail provides breadcrumb navigation back to Tasks
+4. Host command buttons use disabled + tooltip to communicate state preconditions
+5. Dashboard Host Commands panel shows a live host-state badge
+6. Command History (last 20 entries) is visible directly on Dashboard, eliminating the need for a separate Control Panel page
 
 ## 10. Page Wireframes (Low Fidelity)
 
@@ -184,16 +191,24 @@ Navigation style:
 
 ```text
 +--------------------------------------------------------------------------------+
-| WEB TASK HOST                                 host_state: RUNNING   [refresh]  |
+| WEB TASK HOST                  host_state: RUNNING   Updated 1s ago [Refresh] |
 +----------------------+---------------------------------------------------------+
 | Left Nav             | Summary Cards                                           |
-| - Dashboard          | [queued] [starting] [running] [completed/total]        |
+| - Dashboard (active) | [host_state] [queued] [starting] [running] [completed]  |
 | - Tasks              |                                                         |
-| - Submit             | Host Controls                                            |
-| - Control            | [Start] [Graceful Stop] [Force Stop] [Shutdown]         |
+| - Task Detail        | Host Commands  [● RUNNING]                               |
+| - Submit Tasks       | [Start↓] [Graceful Stop] [Force Stop↓] [drain▾] [Shutdown↓] |
+|                      | (disabled+tooltip when precondition not met)            |
 |                      |                                                         |
-|                      | Recent Task Changes                                      |
-|                      | task_id | status | started_at | ended_at | exit_code    |
+|                      | System Resources                                        |
+|                      | CPU / Memory / Disk bars                                |
+|                      |                                                         |
+|                      | Recent Task Changes                                     |
+|                      | (empty state when no tasks: guidance to Submit Tasks)   |
+|                      | task_id | status | started_at | ended_at | exit_code     |
+|                      |                                                         |
+|                      | Command History (last 20)                               |
+|                      | time | command | accepted | reason_code | message        |
 +----------------------+---------------------------------------------------------+
 ```
 
@@ -213,6 +228,8 @@ Navigation style:
 ### 10.3 Task Detail + Logs
 
 ```text
++--------------------------------------------------------------------------------+
+| Tasks  ›  demo-1                   (breadcrumb — click "Tasks" to go back)    |
 +--------------------------------------------------------------------------------+
 | Task: demo-1         status: failed      pid: 12345      exit_code: 1          |
 | created_at: ...  started_at: ...  ended_at: ...  log_path: logs/demo-1.log     |
@@ -243,20 +260,25 @@ Navigation style:
 +--------------------------------------------------------------------------------+
 ```
 
-### 10.5 Control Panel
+### 10.5 Submit Tasks
 
 ```text
 +--------------------------------------------------------------------------------+
-| Start/Stop                                                                        |
-| [Start] [Graceful Stop] [Force Stop]                                            |
+| submit_mode: (o) append   ( ) replace                                          |
+| [Load File] [Validate Payload] [Submit]                                        |
 +--------------------------------------------------------------------------------+
-| Shutdown                                                                          |
-| mode: [drain|force]   timeout_sec: [optional number]   [Shutdown]              |
+| JSON Editor                                                                      |
+| {                                                                                |
+|   "tasks": [                                                                    |
+|     {"task_id":"demo-1", "commands":["Write-Host 'hello'"]}                |
+|   ]                                                                              |
+| }                                                                                |
 +--------------------------------------------------------------------------------+
-| Last Command Responses                                                            |
-| time | command | accepted | reason_code | message | affected_task_ids           |
+| Validation Result / Submit Response                                              |
 +--------------------------------------------------------------------------------+
 ```
+
+_(Control Panel page removed; all host commands consolidated into Dashboard.)_
 
 ## 11. Polling and Refresh Plan
 
@@ -272,6 +294,19 @@ Navigation style:
 3. No API pagination for `/tasks` in large task sets.
 4. No server push channel (SSE/WebSocket); polling only.
 5. Reason code list is frozen for current implementation and must be revised if backend adds new business branches.
+
+---
+
+## 13. UX Conventions
+
+1. **Unified Dashboard**: Dashboard is the single control hub. Host commands and command history are co-located with status cards and resource meters. The Control Panel page has been eliminated.
+2. **Separation of data entry**: Submit Tasks is the only page with mutable data input (task JSON). All host lifecycle commands remain on Dashboard.
+3. **Empty-state guidance**: When `tasks` list is empty, Dashboard shows an inline prompt directing the user to Submit Tasks.
+4. **Breadcrumb navigation**: Task Detail view shows `Tasks › <task_id>` breadcrumb. Clicking "Tasks" returns to the Tasks list.
+5. **Button disabled state**: All host command buttons use `disabled=true` when the current `host_state` does not satisfy the precondition. CSS renders disabled buttons at 35% opacity with `cursor: not-allowed`. The `title` attribute carries a human-readable explanation of the required state.
+6. **Host state badge**: The Host Commands panel heading includes a live-updating colored badge showing the current `host_state`.
+7. **Refresh indicator**: The Refresh Now button is accompanied by an "Updated Xs ago" label that updates every second. Clicking the button disables it and changes its label to "Refreshing…" during the request.
+8. **Shutdown mode**: The drain/force mode `<select>` is inline with the Shutdown button in the Host Commands action row.
 
 ---
 

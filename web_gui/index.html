@@ -18,7 +18,10 @@
       <h1>Task Host Control Deck</h1>
       <p id="topHostState" class="subtle">host_state: -</p>
     </div>
-    <button id="quickRefresh" class="btn btn-secondary">Refresh Now</button>
+    <div class="topbar-refresh">
+      <span id="lastRefreshLabel" class="refresh-time"></span>
+      <button id="quickRefresh" class="btn btn-secondary" title="Manually refresh all data. Data auto-refreshes every ~1s.">Refresh Now</button>
+    </div>
   </header>
 
   <main class="layout">
@@ -27,7 +30,6 @@
       <button class="nav-link" data-view="tasksView">Tasks</button>
       <button class="nav-link" data-view="taskDetailView">Task Detail</button>
       <button class="nav-link" data-view="submitView">Submit Tasks</button>
-      <button class="nav-link" data-view="controlView">Control Panel</button>
     </aside>
 
     <section class="content">
@@ -38,22 +40,30 @@
         <div class="cards" id="summaryCards"></div>
 
         <div class="panel">
+          <h3>Host Commands <span id="controlHostStateBadge" class="host-badge"></span></h3>
+          <div class="actions">
+            <button class="btn" data-command="start">Start</button>
+            <button class="btn" data-command="graceful_stop">Graceful Stop</button>
+            <button class="btn danger" data-command="force_stop">Force Stop</button>
+            <select id="shutdownModeSelect">
+              <option value="drain">drain</option>
+              <option value="force">force</option>
+            </select>
+            <button id="shutdownBtn" class="btn warning" data-command="shutdown">Shutdown</button>
+          </div>
+        </div>
+
+        <div class="panel">
           <h3>System Resources</h3>
           <div id="resourceMeters" class="resource-meters"></div>
         </div>
 
         <div class="panel">
-          <h3>Quick Host Controls</h3>
-          <div class="actions">
-            <button class="btn" data-command="start">Start</button>
-            <button class="btn" data-command="graceful_stop">Graceful Stop</button>
-            <button class="btn danger" data-command="force_stop">Force Stop</button>
-            <button class="btn warning" data-command="shutdown">Shutdown (Drain)</button>
-          </div>
-        </div>
-
-        <div class="panel">
           <h3>Recent Task Changes</h3>
+          <div id="dashboardEmptyState" class="empty-state hidden">
+            <p>No tasks loaded yet.</p>
+            <p>Go to <button class="btn-link" data-view="submitView">Submit Tasks</button> to load a task file, then click Start.</p>
+          </div>
           <div class="table-wrap">
             <table>
               <thead>
@@ -66,6 +76,25 @@
                 </tr>
               </thead>
               <tbody id="recentTaskTbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>Command History</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>time</th>
+                  <th>command</th>
+                  <th>accepted</th>
+                  <th>reason_code</th>
+                  <th>message</th>
+                  <th>affected_task_ids</th>
+                </tr>
+              </thead>
+              <tbody id="commandHistoryTbody"></tbody>
             </table>
           </div>
         </div>
@@ -110,7 +139,11 @@
       </section>
 
       <section id="taskDetailView" class="view hidden">
-        <h2>Task Detail</h2>
+        <nav class="breadcrumb">
+          <button class="breadcrumb-link" data-view="tasksView">Tasks</button>
+          <span class="breadcrumb-sep">›</span>
+          <span id="breadcrumbTaskId" class="breadcrumb-current">Task Detail</span>
+        </nav>
         <div class="panel">
           <div class="filters">
             <select id="detailTaskSelect"></select>
@@ -146,48 +179,6 @@
         </div>
       </section>
 
-      <section id="controlView" class="view hidden">
-        <h2>Control Panel</h2>
-        <div class="panel">
-          <h3>Host Commands</h3>
-          <div class="actions">
-            <button class="btn" data-command="start">Start</button>
-            <button class="btn" data-command="graceful_stop">Graceful Stop</button>
-            <button class="btn danger" data-command="force_stop">Force Stop</button>
-          </div>
-        </div>
-
-        <div class="panel">
-          <h3>Shutdown</h3>
-          <p class="subtle">Shutdown is only accepted when host is in NOT_RUN state.</p>
-          <div class="filters">
-            <select id="shutdownModeSelect">
-              <option value="drain">drain</option>
-              <option value="force">force</option>
-            </select>
-            <button id="shutdownBtn" class="btn warning">Shutdown</button>
-          </div>
-        </div>
-
-        <div class="panel">
-          <h3>Command Responses</h3>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>time</th>
-                  <th>command</th>
-                  <th>accepted</th>
-                  <th>reason_code</th>
-                  <th>message</th>
-                  <th>affected_task_ids</th>
-                </tr>
-              </thead>
-              <tbody id="commandHistoryTbody"></tbody>
-            </table>
-          </div>
-        </div>
-      </section>
     </section>
   </main>
 

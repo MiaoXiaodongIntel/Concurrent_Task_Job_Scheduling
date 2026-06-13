@@ -7,6 +7,7 @@ const state = {
   logCursor: 0,
   logLines: [],
   commandHistory: [],
+  lastRefreshAt: null,
 };
 
 const POLL_HEALTH_MS = 1000;
@@ -81,12 +82,27 @@ function updateButtonStates() {
     const cmd = button.dataset.command;
     const allowed = HOST_STATE_TRANSITIONS[cmd];
     if (allowed) {
-      button.disabled = !allowed.includes(hostState);
+      const isAllowed = allowed.includes(hostState);
+      button.disabled = !isAllowed;
+      button.title = isAllowed
+        ? ""
+        : `“${cmd}” requires host state: ${allowed.join(" or ")} (current: ${hostState || "unknown"})`;
     }
   });
   const shutdownBtn = byId("shutdownBtn");
   if (shutdownBtn) {
-    shutdownBtn.disabled = hostState !== "NOT_RUN";
+    const shutdownAllowed = hostState === "NOT_RUN";
+    shutdownBtn.disabled = !shutdownAllowed;
+    shutdownBtn.title = shutdownAllowed
+      ? ""
+      : `Shutdown requires host_state: NOT_RUN (current: ${hostState || "unknown"})`;
+  }
+
+  // Update host state badge in Control Panel
+  const badge = byId("controlHostStateBadge");
+  if (badge) {
+    badge.textContent = hostState || "-";
+    badge.className = `host-badge ${hostState.toLowerCase()}`;
   }
 }
 
@@ -144,9 +160,14 @@ function renderResourceMeters() {
 
 function renderRecentTasks() {
   const tbody = byId("recentTaskTbody");
+  const emptyState = byId("dashboardEmptyState");
   const recent = [...state.tasks]
     .sort((a, b) => (b.last_output_ts || "").localeCompare(a.last_output_ts || ""))
     .slice(0, 8);
+
+  if (emptyState) {
+    emptyState.classList.toggle("hidden", state.tasks.length > 0);
+  }
 
   tbody.innerHTML = recent
     .map(
@@ -217,6 +238,12 @@ function renderTaskTable() {
 
 function renderTaskDetail() {
   const panel = byId("taskInfoPanel");
+  const breadcrumb = byId("breadcrumbTaskId");
+
+  if (breadcrumb) {
+    breadcrumb.textContent = state.detailTaskId || "Task Detail";
+  }
+
   if (!state.detailTaskId) {
     panel.innerHTML = "<p>Select one task and click Open.</p>";
     return;
@@ -270,6 +297,7 @@ function switchView(viewId) {
 async function refreshHealth() {
   const health = await requestJson("/health");
   state.health = health;
+  state.lastRefreshAt = Date.now();
   renderSummaryCards();
   renderResourceMeters();
 }
@@ -356,19 +384,38 @@ function parseSubmitJson() {
 
 function bindEvents() {
   byId("quickRefresh").addEventListener("click", async () => {
-    await Promise.all([refreshHealth(), refreshTasks()]);
-    showAlert("Refreshed");
+    const btn = byId("quickRefresh");
+    const originalText = btn.textContent;
+    btn.textContent = "Refreshing…";
+    btn.disabled = true;
+    try {
+      await Promise.all([refreshHealth(), refreshTasks()]);
+      showAlert("Refreshed");
+    } finally {
+      btn.textContent = originalText;
+      btn.disabled = false;
+    }
   });
 
   document.querySelectorAll(".nav-link").forEach((button) => {
     button.addEventListener("click", () => switchView(button.dataset.view));
   });
 
+  // Delegated handler for data-view elements outside the sidebar (breadcrumb, empty-state, CTA)
+  document.querySelector(".content").addEventListener("click", (event) => {
+    const el = event.target.closest("[data-view]:not(.nav-link)");
+    if (el) {
+      event.preventDefault();
+      switchView(el.dataset.view);
+    }
+  });
+
   document.querySelectorAll("[data-command]").forEach((button) => {
     button.addEventListener("click", async () => {
       const command = button.dataset.command;
       if (command === "shutdown") {
-        await sendCommand("shutdown", { mode: "drain" });
+        const mode = byId("shutdownModeSelect")?.value || "drain";
+        await sendCommand("shutdown", { mode });
         return;
       }
       if (command === "force_stop") {
@@ -495,11 +542,6 @@ function bindEvents() {
       showAlert(`Submit failed: ${err.message}`, "error");
     }
   });
-
-  byId("shutdownBtn").addEventListener("click", async () => {
-    const mode = byId("shutdownModeSelect").value;
-    await sendCommand("shutdown", { mode });
-  });
 }
 
 function preloadSubmitTemplate() {
@@ -551,6 +593,14 @@ async function bootstrap() {
   setInterval(() => {
     refreshTaskLogs().catch((err) => showAlert(`Log poll failed: ${err.message}`, "error"));
   }, POLL_LOGS_MS);
+
+  setInterval(() => {
+    const label = byId("lastRefreshLabel");
+    if (label && state.lastRefreshAt) {
+      const secs = Math.round((Date.now() - state.lastRefreshAt) / 1000);
+      label.textContent = `Updated ${secs}s ago`;
+    }
+  }, 1000);
 }
 
 bootstrap();
