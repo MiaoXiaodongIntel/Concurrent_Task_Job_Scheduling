@@ -225,7 +225,6 @@ class TaskManager:
         log_dir: Path,
         scheduler_tick: float,
         status_interval: float,
-        auto_start: bool,
     ) -> None:
         self.tasks: dict[str, TaskJob] = {task.task_id: task for task in tasks}
         self.queue: list[str] = [task.task_id for task in tasks]
@@ -235,7 +234,7 @@ class TaskManager:
         self.scheduler_tick = max(0.2, scheduler_tick)
         self.status_interval = max(0.5, status_interval)
 
-        self.host_state = HostState.RUNNING if auto_start else HostState.NOT_RUN
+        self.host_state = HostState.NOT_RUN
         self._lock = threading.RLock()
         self._running_handles: dict[str, RunningTaskHandle] = {}
         self._log_files: dict[str, TextIO] = {}

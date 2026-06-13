@@ -21,7 +21,7 @@ It is responsible for:
 
 Current arguments:
 
-1. `--tasks-file` (required)
+1. `--tasks-file` (optional)
 2. `--max-concurrency` (default: `2`)
 3. `--max-cpu-percent` (default: `75.0`)
 4. `--max-memory-percent` (default: `75.0`)
@@ -30,10 +30,9 @@ Current arguments:
 7. `--status-interval` (default: `2.0`)
 8. `--log-dir` (default: `logs`)
 9. `--summary-json` (optional)
-10. `--auto-start` (optional, default: `false`)
-11. `--monitor-host` (default: `127.0.0.1`)
-12. `--monitor-port` (default: `8765`)
-13. `--interactive-cli` (optional, default: `false`)
+10. `--monitor-host` (default: `127.0.0.1`)
+11. `--monitor-port` (default: `8765`)
+12. `--interactive-cli` (optional, default: `false`)
 
 Threshold parameter constraints:
 
@@ -44,10 +43,9 @@ Threshold parameter constraints:
 
 Startup mode contract:
 
-1. Default mode (`--auto-start` not set): host enters `NOT_RUN` after loading tasks and waits for explicit start command.
-2. Debug mode (`--auto-start` set): host transitions to `RUNNING` immediately after initialization.
-3. Control channel default is Monitor API; interactive stdin command loop is enabled only when `--interactive-cli` is set.
-4. Execution-round completion does not terminate host process; host transitions to `IDLE` and waits for new control requests.
+1. Host always enters `NOT_RUN` after initialization and waits for explicit start command.
+2. Control channel default is Monitor API; interactive stdin command loop is enabled only when `--interactive-cli` is set.
+3. Execution-round completion does not terminate host process; host transitions to `IDLE` and waits for new control requests.
 
 ## 3. Task Definition Contract
 
@@ -55,6 +53,7 @@ Accepted task-file formats:
 
 1. top-level list of task objects
 2. object containing `tasks` list
+3. when `--tasks-file` is omitted, host starts with an empty task set and waits for runtime submission (`POST /tasks/submit`)
 
 Each task object requires:
 
@@ -80,7 +79,7 @@ Runtime submission contract (via Monitor API):
 3. `Scheduler`, `TaskRunner`, `TaskManager` are instantiated.
 4. `MonitorServer` is started with configured host/port.
 5. Optional stdin command thread is started only in interactive CLI mode.
-6. Host enters `NOT_RUN` by default (or `RUNNING` when `--auto-start` is enabled).
+6. Host enters `NOT_RUN` by default.
 7. `TaskManager.run()` executes lifecycle loop with start/stop/rerun/submit/shutdown control participation.
 8. `build_summary(...)` writes JSON snapshot if requested.
 9. Process exits only after shutdown command completion.

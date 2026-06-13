@@ -74,7 +74,7 @@ Host states:
 
 Host transition policy:
 
-1. `NOT_RUN -> RUNNING` by explicit start command (or auto-start mode).
+1. `NOT_RUN -> RUNNING` by explicit start command.
 2. `RUNNING -> DRAINING` by graceful-stop command.
 3. `RUNNING -> STOPPING_FORCE` by force-stop command.
 4. `DRAINING -> STOPPING_FORCE` by force-stop command.

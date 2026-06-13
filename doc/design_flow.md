@@ -21,6 +21,7 @@
 12. [Entry 11 - API-First Control Channel](#entry-11)
 13. [Entry 12 - Resource Admission Guardrails Implemented](#entry-12)
 14. [Entry 13 - Resident Host and Unified Shutdown Model](#entry-13)
+15. [Entry 14 - Startup Contract Simplification](#entry-14)
 
 ## Change Log Rules
 
@@ -199,4 +200,18 @@ Each entry uses:
   - Enables multi-round execution without restarting CLI process, matching GUI-oriented operation.
   - Separates execution control from process lifecycle, reducing control ambiguity.
   - Provides one shutdown path usable by GUI, interactive CLI, and automated tests.
+
+## Entry 14
+
+- Change summary: Simplified startup contract by removing auto-start mode and allowing optional task-file boot.
+- Entry type: Requirement Change
+- Original design -> New design:
+  - Original: TaskHost supported optional `--auto-start`, and startup task set was expected from a required `--tasks-file`.
+  - New:
+    - TaskHost removes `--auto-start`; host always initializes to `NOT_RUN` and requires explicit `start` command.
+    - `--tasks-file` becomes optional; when omitted, host starts with empty task set and waits for runtime `POST /tasks/submit`.
+    - Startup guidance keeps Monitor API as the default path for both submission and start sequencing.
+- Why improved:
+  - Makes startup semantics deterministic across CLI and GUI operators.
+  - Decouples process boot from initial task provisioning, improving service-style operation.
 

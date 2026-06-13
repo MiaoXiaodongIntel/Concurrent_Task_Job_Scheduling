@@ -67,7 +67,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Host scheduler: concurrent task jobs with state machine and real-time logs"
     )
-    parser.add_argument("--tasks-file", required=True, help="Path to JSON task definition file")
+    parser.add_argument(
+        "--tasks-file",
+        default="",
+        help="Optional path to JSON task definition file. If omitted, host starts with empty tasks and waits for submit.",
+    )
     parser.add_argument(
         "--max-concurrency",
         type=int,
@@ -113,11 +117,6 @@ def parse_args() -> argparse.Namespace:
         "--summary-json",
         default="",
         help="Optional path to write final host/task summary as JSON",
-    )
-    parser.add_argument(
-        "--auto-start",
-        action="store_true",
-        help="Start scheduling immediately without waiting for a start command",
     )
     parser.add_argument(
         "--monitor-host",
@@ -195,14 +194,16 @@ def build_summary(manager: TaskManager) -> dict[str, object]:
 def main() -> int:
     args = parse_args()
 
-    tasks_file = Path(args.tasks_file).resolve()
     log_dir = Path(args.log_dir).resolve()
 
-    try:
-        tasks = load_tasks(tasks_file)
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
-        print(f"Failed to load tasks file: {exc}", file=sys.stderr)
-        return 2
+    tasks: list[TaskJob] = []
+    if args.tasks_file:
+        tasks_file = Path(args.tasks_file).resolve()
+        try:
+            tasks = load_tasks(tasks_file)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            print(f"Failed to load tasks file: {exc}", file=sys.stderr)
+            return 2
 
     scheduler = Scheduler(
         max_concurrency=args.max_concurrency,
@@ -218,7 +219,6 @@ def main() -> int:
         log_dir=log_dir,
         scheduler_tick=args.scheduler_tick,
         status_interval=args.status_interval,
-        auto_start=args.auto_start,
     )
 
     monitor = MonitorServer(manager=manager, host=args.monitor_host, port=args.monitor_port)
@@ -231,10 +231,12 @@ def main() -> int:
         else:
             print("[CTRL] interactive CLI requested but stdin is not a TTY; stdin command loop disabled.")
 
-    if not args.auto_start:
-        print("[HOST] Initial state is NOT_RUN. Use POST /control/start to begin scheduling.")
-        if args.interactive_cli and sys.stdin.isatty():
-            print("[HOST] CLI mode is enabled. You can also type 'start' and press Enter.")
+    if not args.tasks_file:
+        print("[HOST] No --tasks-file provided. Start with empty task set; use POST /tasks/submit to add tasks.")
+
+    print("[HOST] Initial state is NOT_RUN. Use POST /control/start to begin scheduling.")
+    if args.interactive_cli and sys.stdin.isatty():
+        print("[HOST] CLI mode is enabled. You can also type 'start' and press Enter.")
 
     print("[HOST] Resident mode enabled. The process stays alive in IDLE until shutdown is requested.")
 
