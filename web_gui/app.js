@@ -447,6 +447,29 @@ function bindEvents() {
     renderLogs();
   });
 
+  byId("loadTaskFileBtn").addEventListener("click", () => {
+    byId("taskFileInput").click();
+  });
+
+  byId("taskFileInput").addEventListener("change", (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const parsed = JSON.parse(e.target.result);
+        byId("submitJsonEditor").value = JSON.stringify(parsed, null, 2);
+        byId("submitResult").textContent = `Loaded: ${file.name} (${file.size} bytes)`;
+        showAlert(`Loaded ${file.name}`);
+      } catch (err) {
+        byId("submitResult").textContent = `Failed to parse file: ${err.message}`;
+        showAlert(`Failed to parse file: ${err.message}`, "error");
+      }
+      event.target.value = "";
+    };
+    reader.readAsText(file);
+  });
+
   byId("validateSubmitBtn").addEventListener("click", () => {
     try {
       const tasks = parseSubmitJson();
