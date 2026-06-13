@@ -578,6 +578,7 @@ class TaskManager:
         }
 
     def snapshot_health(self) -> dict[str, Any]:
+        resource = self._resource_probe.snapshot()
         with self._lock:
             queued = sum(1 for t in self.tasks.values() if t.status == TaskStatus.QUEUED)
             starting = sum(1 for t in self.tasks.values() if t.status == TaskStatus.STARTING)
@@ -596,6 +597,9 @@ class TaskManager:
                 "completed_count": completed,
                 "total_count": total,
                 "last_status_ts": now_iso(),
+                "cpu_percent": round(resource.cpu_percent, 1),
+                "memory_percent": round(resource.memory_percent, 1),
+                "disk_active_percent": round(resource.disk_active_percent, 1),
             }
 
     def snapshot_metrics(self) -> dict[str, Any]:

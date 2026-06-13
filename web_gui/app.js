@@ -111,6 +111,37 @@ function renderSummaryCards() {
   updateButtonStates();
 }
 
+function renderResourceMeters() {
+  const container = byId("resourceMeters");
+  if (!container) return;
+  const h = state.health || {};
+
+  const meters = [
+    { label: "CPU", key: "cpu_percent" },
+    { label: "Memory", key: "memory_percent" },
+    { label: "Disk Active", key: "disk_active_percent" },
+  ];
+
+  container.innerHTML = meters
+    .map(({ label, key }) => {
+      const val = h[key] ?? null;
+      const pct = val !== null ? val : 0;
+      const level = pct >= 90 ? "danger" : pct >= 70 ? "warning" : "normal";
+      const display = val !== null ? `${pct}%` : "-";
+      return `
+        <div class="resource-meter">
+          <div class="resource-meter-header">
+            <span class="resource-label">${label}</span>
+            <span class="resource-value ${level}">${display}</span>
+          </div>
+          <div class="resource-bar-track">
+            <div class="resource-bar-fill ${level}" style="width:${pct}%"></div>
+          </div>
+        </div>`;
+    })
+    .join("");
+}
+
 function renderRecentTasks() {
   const tbody = byId("recentTaskTbody");
   const recent = [...state.tasks]
@@ -240,6 +271,7 @@ async function refreshHealth() {
   const health = await requestJson("/health");
   state.health = health;
   renderSummaryCards();
+  renderResourceMeters();
 }
 
 async function refreshTasks() {
@@ -473,6 +505,7 @@ async function bootstrap() {
   bindEvents();
   preloadSubmitTemplate();
   renderSummaryCards();
+  renderResourceMeters();
   renderRecentTasks();
   renderTaskTable();
   renderTaskDetail();

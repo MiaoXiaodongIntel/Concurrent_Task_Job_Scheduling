@@ -153,6 +153,58 @@ body {
   margin-bottom: 12px;
 }
 
+/* ── Resource meters ─────────────────────────────── */
+.resource-meters {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.resource-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.resource-meter-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.resource-label {
+  font-size: 13px;
+  color: var(--ink-soft);
+  font-weight: 500;
+}
+
+.resource-value {
+  font-size: 13px;
+  font-weight: 700;
+  font-family: "JetBrains Mono", monospace;
+}
+
+.resource-value.normal  { color: var(--accent); }
+.resource-value.warning { color: var(--warning); }
+.resource-value.danger  { color: var(--danger); }
+
+.resource-bar-track {
+  height: 8px;
+  border-radius: 99px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.resource-bar-fill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width 0.4s ease;
+}
+
+.resource-bar-fill.normal  { background: var(--accent); }
+.resource-bar-fill.warning { background: var(--warning); }
+.resource-bar-fill.danger  { background: var(--danger); }
+
 .actions,
 .filters {
   display: flex;
