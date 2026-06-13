@@ -219,7 +219,10 @@ function renderTaskTable() {
           <td>${formatValue(task.started_at)}</td>
           <td>${formatValue(task.ended_at)}</td>
           <td>${formatValue(task.exit_code)}</td>
-          <td><button class="btn btn-secondary" data-open-task="${task.task_id}">Open</button></td>
+          <td>
+            <button class="btn btn-secondary" data-open-task="${task.task_id}">Open</button>
+            ${task.status === 'running' ? `<button class="btn danger" data-abort-task="${task.task_id}" style="margin-left:4px">Abort</button>` : ''}
+          </td>
         </tr>`;
     })
     .join("");
@@ -255,6 +258,7 @@ function renderTaskDetail() {
     return;
   }
 
+  const isRunning = task.status === 'running';
   panel.innerHTML = `
     <h3>${task.task_id}</h3>
     <p><strong>status:</strong> ${task.status} <strong>pid:</strong> ${formatValue(task.pid)} <strong>exit_code:</strong> ${formatValue(task.exit_code)}</p>
@@ -262,6 +266,11 @@ function renderTaskDetail() {
     <p><strong>started_at:</strong> ${formatValue(task.started_at)} <strong>ended_at:</strong> ${formatValue(task.ended_at)}</p>
     <p><strong>abort_reason:</strong> ${formatValue(task.abort_reason)}</p>
     <p><strong>log_path:</strong> ${formatValue(task.log_path)}</p>
+    <div class="actions" style="margin-top:8px">
+      <button class="btn danger" data-abort-task="${task.task_id}"
+        ${isRunning ? '' : 'disabled'}
+        title="${isRunning ? 'Abort this running task' : 'Task is not running'}">Abort</button>
+    </div>
   `;
 }
 
@@ -368,6 +377,20 @@ async function sendCommand(command, options = {}) {
   }
 }
 
+async function sendAbortTask(taskId) {
+  if (!window.confirm(`Abort task "${taskId}"?\nThe subprocess will be terminated immediately.`)) {
+    return;
+  }
+  try {
+    const result = await postJson(`/tasks/${encodeURIComponent(taskId)}/abort`, {});
+    pushHistory(result);
+    await Promise.all([refreshHealth(), refreshTasks()]);
+    showAlert(`abort_task: ${result.message} (${result.reason_code})`, result.accepted ? "success" : "error");
+  } catch (err) {
+    showAlert(`Abort failed: ${err.message}`, "error");
+  }
+}
+
 function collectSubmitMode() {
   const checked = document.querySelector("input[name='submitMode']:checked");
   return checked ? checked.value : "append";
@@ -442,7 +465,7 @@ function bindEvents() {
     renderTaskTable();
   });
 
-  byId("taskTableTbody").addEventListener("click", (event) => {
+  byId("taskTableTbody").addEventListener("click", async (event) => {
     const selectTaskId = event.target?.dataset?.selectTask;
     if (selectTaskId) {
       if (event.target.checked) {
@@ -462,6 +485,19 @@ function bindEvents() {
       renderTaskDetail();
       renderLogs();
       switchView("taskDetailView");
+      return;
+    }
+
+    const abortTaskId = event.target?.dataset?.abortTask;
+    if (abortTaskId) {
+      await sendAbortTask(abortTaskId);
+    }
+  });
+
+  byId("taskInfoPanel").addEventListener("click", async (event) => {
+    const abortTaskId = event.target?.dataset?.abortTask;
+    if (abortTaskId) {
+      await sendAbortTask(abortTaskId);
     }
   });
 

@@ -74,11 +74,11 @@ Scope:
 4. `eof`: boolean
 5. `lines`: list of strings
 
-### 4.4 Control Response Model (`POST /control/*`, `POST /tasks/submit`)
+### 4.4 Control Response Model (`POST /control/*`, `POST /tasks/submit`, `POST /tasks/{id}/abort`)
 
 Common fields:
 1. `accepted`: boolean
-2. `command`: `start|graceful_stop|force_stop|rerun|shutdown|submit_tasks`
+2. `command`: `start|graceful_stop|force_stop|rerun|shutdown|submit_tasks|abort_task`
 3. `requested_at`: timestamp string
 4. `host_state_before`: host state string
 5. `host_state_after_expected`: host state string
@@ -104,6 +104,7 @@ Optional fields:
 | `/control/rerun` | POST | `{ "task_ids": string[] }` | control response (may include partial success) | `400` + `accepted=false` and `reason_code` |
 | `/control/shutdown` | POST | `{ "mode": "drain|force", "timeout_sec": number? }` | control response | `400` + `accepted=false` and `reason_code` |
 | `/tasks/submit` | POST | `{ "submit_mode": "append|replace", "tasks": TaskPayload[] }` | submit response | `400` + `accepted=false` and `reason_code` |
+| `/tasks/{id}/abort` | POST | empty object or no body | control response | `400` + `accepted=false` and `reason_code` |
 
 `TaskPayload`:
 1. `task_id`: optional string (auto-generated if missing/empty)
@@ -129,6 +130,7 @@ Shutdown-specific parameter validation:
 | Command | Task eligibility | Rejection reason_code |
 |---|---|---|
 | `rerun` | task must exist and status is `succeeded` or `failed` | `no_eligible_task` when none accepted |
+| `abort_task` | task must exist and status is `running` | `task_not_found` or `task_not_running` |
 | `submit_tasks` (`append`) | all incoming `task_id` must be non-duplicate against existing tasks | `duplicate_task_id` |
 | `submit_tasks` (`replace`) | no in-flight tasks (`starting` or `running`) | `inflight_exists` |
 | `submit_tasks` (all modes) | host must not be shutting down | `host_shutting_down` |
@@ -145,6 +147,8 @@ Shutdown-specific parameter validation:
 5. `shutdown_already_requested`
 6. `invalid_timeout`
 7. `unknown_command`
+8. `task_not_found`
+9. `task_not_running`
 
 ### 7.2 Task submission reason_code
 
@@ -221,7 +225,7 @@ UX principles applied:
 +--------------------------------------------------------------------------------+
 | Select | task_id | status | pid | started_at | ended_at | exit_code | detail  |
 | [ ]    | demo-1  | failed | 123 | ...        | ...      | 1         | [open]  |
-| [ ]    | demo-2  | running| 345 | ...        | -        | -         | [open]  |
+| [ ]    | demo-2  | running| 345 | ...        | -        | -         | [open] [Abort] |
 +--------------------------------------------------------------------------------+
 ```
 
@@ -233,6 +237,8 @@ UX principles applied:
 +--------------------------------------------------------------------------------+
 | Task: demo-1         status: failed      pid: 12345      exit_code: 1          |
 | created_at: ...  started_at: ...  ended_at: ...  log_path: logs/demo-1.log     |
+| [Rerun]  (shown when status is succeeded|failed|aborted)                       |
+| [Abort]  (shown when status is running; disabled otherwise + tooltip)          |
 +--------------------------------------------------------------------------------+
 | Log Controls: [auto refresh on/off] [limit=200] [clear view]                   |
 +--------------------------------------------------------------------------------+

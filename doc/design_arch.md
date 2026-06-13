@@ -21,7 +21,7 @@ The project provides the following core capabilities:
 3. Real-time observability: stream task outputs and expose runtime status.
 4. Lifecycle governance: define a unified task lifecycle model and transition invariants.
 5. Automatic lifecycle progression: scheduler and runner events drive normal state changes (for example `running -> succeeded|failed`).
-6. Manual lifecycle intervention: control commands drive human-triggered transitions (for example stop, start/resume, and rerun), including `starting|running -> aborted` under force-stop policy.
+6. Manual lifecycle intervention: control commands drive human-triggered transitions (for example stop, start/resume, and rerun), including `starting|running -> aborted` under force-stop policy and `running -> aborted` under per-task user abort.
 7. Rerun lifecycle operation: user can rerun `succeeded|failed` tasks by moving them back to `queued`.
 8. Monitoring integration: provide stable status/log interfaces for CLI/GUI/API consumers.
 9. Resident host mode: host process stays alive after one execution round and enters idle state for later resume.

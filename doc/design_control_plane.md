@@ -16,6 +16,7 @@ It is the owner of manual lifecycle intervention semantics (requirement 2.6), wh
 4. `rerun`
 5. `submit_tasks`
 6. `shutdown`
+7. `abort_task`
 
 ## 3. Behavior Contract
 
@@ -74,6 +75,20 @@ Lifecycle intent:
 3. In `drain` mode, host stops new admissions and exits after in-flight tasks complete.
 4. In `force` mode, host aborts in-flight tasks and exits after process cleanup.
 5. Optional timeout can escalate `drain` to forced termination.
+
+### 3.6 Per-Task Abort
+
+1. Accept a single `task_id`.
+2. Reject if task does not exist (`task_not_found`).
+3. Reject if task status is not `running` (`task_not_running`).
+4. Terminate the task's subprocess immediately.
+5. Transition task status to `aborted` with `abort_reason = "user_abort"`.
+6. Host state is not changed; other tasks continue unaffected.
+
+Lifecycle intent:
+
+1. Allow targeted interruption of a single in-progress task without affecting host or sibling tasks.
+2. Aborted task may be rerun by the user after abort.
 
 ## 4. Interface with Other Modules
 

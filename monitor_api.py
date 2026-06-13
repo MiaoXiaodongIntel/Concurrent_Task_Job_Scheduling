@@ -144,6 +144,28 @@ class MonitorServer:
                         self._write_json(400, {"error": str(exc)})
                         return
 
+                if path.startswith("/tasks/") and path.endswith("/abort"):
+                    task_id = path[len("/tasks/"):-len("/abort")]
+                    if not task_id:
+                        self._write_json(404, {"error": f"unknown endpoint: {path}"})
+                        return
+                    host_state_before = manager.snapshot_health()["host_state"]
+                    result = manager.abort_task(task_id)
+                    host_state_after_expected = manager.snapshot_health()["host_state"]
+                    response = {
+                        "accepted": result["accepted"],
+                        "command": "abort_task",
+                        "task_id": task_id,
+                        "requested_at": now_iso(),
+                        "host_state_before": host_state_before,
+                        "host_state_after_expected": host_state_after_expected,
+                        "message": result["message"],
+                        "reason_code": result["reason_code"],
+                        "affected_task_ids": [task_id] if result["accepted"] else [],
+                    }
+                    self._write_json(200 if result["accepted"] else 400, response)
+                    return
+
                     submit_mode_raw = payload.get("submit_mode", "append")
                     submit_mode = str(submit_mode_raw)
                     tasks_payload = payload.get("tasks")

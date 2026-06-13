@@ -26,6 +26,7 @@
 16. [Entry 16 - Task Aborted State Made Recoverable](#entry-16)
 17. [Entry 17 - Web GUI UX Conventions Established](#entry-17)
 18. [Entry 18 - Host Commands Consolidated into Dashboard](#entry-18)
+19. [Entry 19 - Per-Task User Abort Requirement Added](#entry-19)
 ## Change Log Rules
 
 Each entry uses:
@@ -282,4 +283,25 @@ Each entry uses:
   - Eliminates the navigation round-trip between observing state and issuing commands; operators act on state directly from the same view.
   - Matches the operator mental model: seeing `RUNNING` and clicking Graceful Stop is a single-step decision on one screen.
   - Simplifies the navigation structure and reduces the surface area users must learn.
+
+## Entry 19
+
+- Change summary: Added per-task user abort as a new manual lifecycle intervention, including the API endpoint, state machine extension, and a confirm dialog in the Web GUI.
+- Entry type: Requirement Change
+- Original design -> New design:
+  - Original: The only path to `running -> aborted` was a host-level `force_stop`, which terminated all running and starting tasks simultaneously; no mechanism existed to abort a single task independently; the Abort button in the GUI had no confirmation step.
+  - New:
+    - Users can issue an abort against a single `running` task without affecting host state or sibling tasks.
+    - The task's subprocess is terminated immediately and the task transitions to `aborted` with `abort_reason = "user_abort"`.
+    - Host state remains unchanged; other tasks continue executing.
+    - `aborted` tasks remain eligible for rerun.
+    - A new endpoint `POST /tasks/{id}/abort` is added to the control surface.
+    - `abort_task` is added to the control command enumeration in all API and design documents.
+    - New reason codes `task_not_found` and `task_not_running` are added to the reason code dictionary.
+    - Clicking the Abort button in either the Tasks list or the Task Detail view opens a browser `confirm` dialog before dispatching the API call; cancelling discards the action with no server request.
+- Why improved:
+  - Enables targeted interruption without collateral impact on concurrent tasks.
+  - Aligns task-level and host-level abort semantics: both use the same `aborted` state and rerun recovery path.
+  - Fills the operational gap between doing nothing and issuing a full force-stop.
+  - Prevents accidental abort from a misclick; consistent with the existing Force Stop confirm dialog pattern.
 

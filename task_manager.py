@@ -449,6 +449,44 @@ class TaskManager:
             "message": "tasks accepted",
         }
 
+    def abort_task(self, task_id: str) -> dict[str, Any]:
+        """Abort a single running task by task_id without affecting host or sibling tasks."""
+        with self._lock:
+            task = self.tasks.get(task_id)
+            if task is None:
+                return {
+                    "accepted": False,
+                    "task_id": task_id,
+                    "reason_code": "task_not_found",
+                    "message": f"task not found: {task_id}",
+                }
+            if task.status != TaskStatus.RUNNING:
+                return {
+                    "accepted": False,
+                    "task_id": task_id,
+                    "reason_code": "task_not_running",
+                    "message": f"task {task_id} is not running (status={task.status.value})",
+                }
+            handle = self._running_handles.get(task_id)
+            self._set_task_status(task, TaskStatus.ABORTED)
+            task.abort_reason = "user_abort"
+            task.ended_at = now_iso()
+
+        if handle is not None:
+            try:
+                handle.process.terminate()
+            except OSError:
+                pass
+            print(f"[HOST] abort_task task={task_id} pid={handle.process.pid}")
+
+        print(f"[HOST] abort_task accepted task={task_id}")
+        return {
+            "accepted": True,
+            "task_id": task_id,
+            "reason_code": "accepted",
+            "message": f"task {task_id} aborted",
+        }
+
     def rerun(self, task_ids: list[str]) -> tuple[list[str], list[str]]:
         accepted: list[str] = []
         rejected: list[str] = []
@@ -532,6 +570,24 @@ class TaskManager:
                 "rejected_task_ids": rejected,
                 "message": "accepted" if accepted else "ignored: no succeeded/failed/aborted task selected",
                 "reason_code": "accepted" if accepted else "no_eligible_task",
+            }
+        if cmd == "abort_task":
+            t_ids = task_ids or []
+            if not t_ids:
+                return {
+                    "accepted": False,
+                    "command": "abort_task",
+                    "affected_task_ids": [],
+                    "message": "no task_id provided",
+                    "reason_code": "task_not_found",
+                }
+            result_inner = self.abort_task(t_ids[0])
+            return {
+                "accepted": result_inner["accepted"],
+                "command": "abort_task",
+                "affected_task_ids": [t_ids[0]] if result_inner["accepted"] else [],
+                "message": result_inner["message"],
+                "reason_code": result_inner["reason_code"],
             }
         if cmd == "shutdown":
             opts = options or {}

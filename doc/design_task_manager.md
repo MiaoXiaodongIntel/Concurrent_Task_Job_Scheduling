@@ -26,7 +26,7 @@ State semantics:
 3. `running`: task process is alive and task output can be observed.
 4. `succeeded`: task finished with success exit code in the latest attempt.
 5. `failed`: task finished with non-zero exit code or spawn failure in the latest attempt.
-6. `aborted`: task was interrupted by manual force-stop policy.
+6. `aborted`: task was interrupted by manual force-stop policy or by a per-task user abort.
 
 Terminal states:
 
@@ -45,7 +45,7 @@ TaskManager is the only state-commit authority. It applies transitions from two 
 	- example: `running -> succeeded|failed` based on process exit code
 2. Manual events:
 	- stop/abort commands coordinated by ControlPlane
-	- example: `running -> aborted` when forced stop policy applies
+	- example: `running -> aborted` when forced stop policy applies or when per-task user abort is requested
 3. Rerun events:
 	- user rerun command coordinated by ControlPlane
 	- example: `succeeded|failed|aborted -> queued`
@@ -62,6 +62,7 @@ Baseline transitions:
 4. `running -> aborted` (force-stop path)
 5. `succeeded|failed|aborted -> queued` (rerun path)
 6. `starting -> aborted` (force-stop path)
+7. `running -> aborted` (per-task user abort path)
 
 ## 3. Host Lifecycle Model
 

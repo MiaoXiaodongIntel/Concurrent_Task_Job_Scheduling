@@ -34,6 +34,7 @@ Transport contract:
 4. `POST /control/rerun`
 5. `POST /control/shutdown`
 6. `POST /tasks/submit`
+7. `POST /tasks/{id}/abort`
 
 Control endpoints are intent APIs, not direct state mutation APIs. Final task status changes are committed by TaskManager.
 
@@ -90,13 +91,14 @@ Requirement 2.6 (manual lifecycle intervention):
 5. `POST /tasks/submit` submits runtime task-list append/replace intent.
 6. `POST /control/shutdown` submits host process shutdown intent (`drain` default).
 7. `GET /health` and `GET /tasks` expose intervention effects (for example reduced admissions, `aborted` tasks, and `abort_reason`).
+8. `POST /tasks/{id}/abort` submits per-task abort intent for a single `running` task.
 
 ### 4.3 Control Command Response Contract
 
 For control endpoints, responses should include:
 
 1. `accepted` (whether command was accepted)
-2. `command` (`start|graceful_stop|force_stop|rerun|shutdown|submit_tasks`)
+2. `command` (`start|graceful_stop|force_stop|rerun|shutdown|submit_tasks|abort_task`)
 3. `requested_at`
 4. `host_state_before`
 5. `host_state_after_expected`
