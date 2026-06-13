@@ -32,7 +32,8 @@ Terminal states:
 
 1. `succeeded`
 2. `failed`
-3. `aborted`
+
+Note: `aborted` is not a terminal state; aborted tasks may be rerun.
 
 ### 2.1 Transition Sources and Ownership
 
@@ -40,13 +41,14 @@ TaskManager is the only state-commit authority. It applies transitions from two 
 
 1. Automatic events:
 	- scheduler admission and runner completion
+	- admission condition: host must be in `RUNNING` state for `queued -> starting` to trigger
 	- example: `running -> succeeded|failed` based on process exit code
 2. Manual events:
 	- stop/abort commands coordinated by ControlPlane
 	- example: `running -> aborted` when forced stop policy applies
 3. Rerun events:
 	- user rerun command coordinated by ControlPlane
-	- example: `succeeded|failed -> queued`
+	- example: `succeeded|failed|aborted -> queued`
 
 Both sources must go through the same transition validator to keep lifecycle consistency.
 
@@ -54,11 +56,11 @@ Both sources must go through the same transition validator to keep lifecycle con
 
 Baseline transitions:
 
-1. `queued -> starting`
+1. `queued -> starting` (condition: host in `RUNNING` state)
 2. `starting -> running|failed`
 3. `running -> succeeded|failed`
 4. `running -> aborted` (force-stop path)
-5. `succeeded|failed -> queued` (rerun path)
+5. `succeeded|failed|aborted -> queued` (rerun path)
 6. `starting -> aborted` (force-stop path)
 
 ## 3. Host Lifecycle Model
@@ -69,8 +71,15 @@ Host states:
 2. `RUNNING`
 3. `DRAINING`
 4. `STOPPING_FORCE`
-5. `IDLE`
-6. `SHUTTING_DOWN`
+5. `SHUTTING_DOWN`
+
+Host state semantics:
+
+1. `NOT_RUN`: host is initialized but not executing; waiting for start or shutdown command.
+2. `RUNNING`: host is actively scheduling tasks; stays in this state even after all current tasks complete, allowing further rerun requests.
+3. `DRAINING`: graceful-stop issued; no new tasks are admitted; waiting for in-flight tasks to finish.
+4. `STOPPING_FORCE`: force-stop issued; in-flight tasks are being aborted.
+5. `SHUTTING_DOWN`: process is terminating; entered only from `NOT_RUN`.
 
 Host transition policy:
 
@@ -78,12 +87,10 @@ Host transition policy:
 2. `RUNNING -> DRAINING` by graceful-stop command.
 3. `RUNNING -> STOPPING_FORCE` by force-stop command.
 4. `DRAINING -> STOPPING_FORCE` by force-stop command.
-5. `RUNNING -> IDLE` when no queued task and no in-flight task remain.
-6. `DRAINING -> IDLE` when no in-flight task remains.
-7. `STOPPING_FORCE -> IDLE` after force-stop handling is completed.
-8. `IDLE -> RUNNING` by explicit start/resume command.
-9. `NOT_RUN|RUNNING|DRAINING|STOPPING_FORCE|IDLE -> SHUTTING_DOWN` by shutdown command.
-10. `SHUTTING_DOWN` ends host loop when no in-flight task remains.
+5. `DRAINING -> NOT_RUN` when no in-flight task remains.
+6. `STOPPING_FORCE -> NOT_RUN` after force-stop handling is completed.
+7. `NOT_RUN -> SHUTTING_DOWN` by shutdown command.
+8. `SHUTTING_DOWN` ends host loop immediately (no in-flight tasks exist at this point).
 
 ## 4. Data Ownership
 

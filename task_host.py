@@ -238,7 +238,7 @@ def main() -> int:
     if args.interactive_cli and sys.stdin.isatty():
         print("[HOST] CLI mode is enabled. You can also type 'start' and press Enter.")
 
-    print("[HOST] Resident mode enabled. The process stays alive in IDLE until shutdown is requested.")
+    print("[HOST] Resident mode enabled. The process stays alive in NOT_RUN after stop; use shutdown to exit.")
 
     try:
         exit_code = manager.run()

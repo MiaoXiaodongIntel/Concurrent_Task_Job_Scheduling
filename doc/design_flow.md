@@ -21,8 +21,9 @@
 12. [Entry 11 - API-First Control Channel](#entry-11)
 13. [Entry 12 - Resource Admission Guardrails Implemented](#entry-12)
 14. [Entry 13 - Resident Host and Unified Shutdown Model](#entry-13)
-15. [Entry 14 - Startup Contract Simplification](#entry-14)
-
+14. [Entry 14 - Startup Contract Simplification](#entry-14)
+15. [Entry 15 - Host State Machine IDLE Removal](#entry-15)
+16. [Entry 16 - Task Aborted State Made Recoverable](#entry-16)
 ## Change Log Rules
 
 Each entry uses:
@@ -214,4 +215,36 @@ Each entry uses:
 - Why improved:
   - Makes startup semantics deterministic across CLI and GUI operators.
   - Decouples process boot from initial task provisioning, improving service-style operation.
+
+## Entry 15
+
+- Change summary: Removed IDLE host state; stop flows now return to NOT_RUN and shutdown is restricted to NOT_RUN only.
+- Entry type: Design Modification
+- Original design -> New design:
+  - Original: Host FSM included `IDLE` as the post-completion and post-stop resting state; `RUNNING` transitioned to `IDLE` when all tasks finished; `IDLE` accepted `start`/`resume` and `shutdown` commands; shutdown was accepted from any non-terminal state.
+  - New:
+    - `IDLE` is removed from the host FSM; the states are: `NOT_RUN`, `RUNNING`, `DRAINING`, `STOPPING_FORCE`, `SHUTTING_DOWN`.
+    - `RUNNING` persists after all current tasks complete; rerun requests are accepted directly without re-issuing `start`.
+    - `DRAINING -> NOT_RUN` and `STOPPING_FORCE -> NOT_RUN` replace the former `-> IDLE` transitions.
+    - `start` command is accepted only from `NOT_RUN` (no longer from `IDLE`).
+    - `shutdown` command is accepted only from `NOT_RUN`; other states must stop first.
+- Why improved:
+  - Eliminates ambiguity between `IDLE` and `NOT_RUN`; a single quiescent state is clearer.
+  - Keeps `RUNNING` alive for immediate rerun without an extra start round-trip.
+  - Enforces a deliberate stop-then-shutdown flow, preventing accidental process exit from active states.
+
+## Entry 16
+
+- Change summary: Removed aborted as a terminal task state and extended rerun eligibility to include aborted tasks.
+- Entry type: Design Modification
+- Original design -> New design:
+  - Original: `aborted` was listed as a terminal state alongside `succeeded` and `failed`; rerun accepted only `succeeded` and `failed` tasks; `queued -> starting` had no explicit host-state precondition.
+  - New:
+    - `aborted` is a non-terminal state; transition `aborted -> queued` is allowed via rerun command.
+    - Terminal states are `succeeded` and `failed` only.
+    - Rerun eligibility set is expanded to `succeeded | failed | aborted`.
+    - `queued -> starting` is explicitly conditioned on host being in `RUNNING` state.
+- Why improved:
+  - Allows recovery from force-stop or force-shutdown without requiring task redefinition.
+  - Makes the admission precondition explicit, removing implicit coupling between task and host state machines.
 

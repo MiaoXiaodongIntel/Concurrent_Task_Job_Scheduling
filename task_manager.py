@@ -25,7 +25,6 @@ class HostState(str, Enum):
     RUNNING = "RUNNING"
     DRAINING = "DRAINING"
     STOPPING_FORCE = "STOPPING_FORCE"
-    IDLE = "IDLE"
     SHUTTING_DOWN = "SHUTTING_DOWN"
 
 
@@ -44,7 +43,7 @@ ALLOWED_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
     TaskStatus.RUNNING: {TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.ABORTED},
     TaskStatus.SUCCEEDED: {TaskStatus.QUEUED},
     TaskStatus.FAILED: {TaskStatus.QUEUED},
-    TaskStatus.ABORTED: set(),
+    TaskStatus.ABORTED: {TaskStatus.QUEUED},
 }
 
 
@@ -183,8 +182,6 @@ class _SystemResourceProbe:
                     r"\PhysicalDisk(_Total)\% Disk Time",
                     "-sc",
                     "1",
-                    "-f",
-                    "TSV",
                 ],
                 capture_output=True,
                 text=True,
@@ -287,7 +284,7 @@ class TaskManager:
         with self._lock:
             if self._shutdown_requested:
                 return False
-            if self.host_state not in {HostState.NOT_RUN, HostState.IDLE}:
+            if self.host_state != HostState.NOT_RUN:
                 return False
             self.host_state = HostState.RUNNING
         print("[HOST] start accepted -> state=RUNNING")
@@ -345,22 +342,16 @@ class TaskManager:
         with self._lock:
             if self._shutdown_requested:
                 return False, "shutdown_already_requested"
+            if self.host_state != HostState.NOT_RUN:
+                return False, "host_not_in_not_run"
 
             self._shutdown_requested = True
             self._shutdown_mode = requested_mode
-            self._shutdown_force_applied = requested_mode == "force"
+            self._shutdown_force_applied = False
+            self._shutdown_deadline_monotonic = None
             self.host_state = HostState.SHUTTING_DOWN
 
-            if timeout_sec is not None:
-                timeout_value = max(0.0, float(timeout_sec))
-                self._shutdown_deadline_monotonic = time.monotonic() + timeout_value
-            else:
-                self._shutdown_deadline_monotonic = None
-
-            if requested_mode == "force":
-                self._abort_inflight_locked(reason="shutdown_force")
-
-        print(f"[HOST] shutdown accepted mode={requested_mode} -> state=SHUTTING_DOWN")
+        print(f"[HOST] shutdown accepted -> state=SHUTTING_DOWN")
         return True, "accepted"
 
     def _abort_inflight_locked(self, reason: str) -> None:
@@ -467,7 +458,7 @@ class TaskManager:
                 if task is None:
                     rejected.append(task_id)
                     continue
-                if task.status not in {TaskStatus.SUCCEEDED, TaskStatus.FAILED}:
+                if task.status not in {TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.ABORTED}:
                     rejected.append(task_id)
                     continue
 
@@ -539,7 +530,7 @@ class TaskManager:
                 "command": "rerun",
                 "affected_task_ids": accepted,
                 "rejected_task_ids": rejected,
-                "message": "accepted" if accepted else "ignored: no succeeded/failed task selected",
+                "message": "accepted" if accepted else "ignored: no succeeded/failed/aborted task selected",
                 "reason_code": "accepted" if accepted else "no_eligible_task",
             }
         if cmd == "shutdown":
@@ -566,6 +557,8 @@ class TaskManager:
                 message = "accepted"
             elif reason == "invalid_shutdown_mode":
                 message = "ignored: mode must be drain or force"
+            elif reason == "host_not_in_not_run":
+                message = "ignored: shutdown only allowed from NOT_RUN state"
             else:
                 message = "ignored: shutdown already requested"
 
@@ -871,30 +864,12 @@ class TaskManager:
         with self._lock:
             inflight = self._inflight_count()
             if self.host_state == HostState.DRAINING and inflight == 0:
-                self.host_state = HostState.IDLE
-                print("[HOST] draining complete -> state=IDLE")
+                self.host_state = HostState.NOT_RUN
+                print("[HOST] draining complete -> state=NOT_RUN")
                 return
             if self.host_state == HostState.STOPPING_FORCE and inflight == 0:
-                self.host_state = HostState.IDLE
-                print("[HOST] force stop complete -> state=IDLE")
-                return
-            if self.host_state == HostState.RUNNING and inflight == 0 and not self.queue:
-                self.host_state = HostState.IDLE
-                print("[HOST] execution round completed -> state=IDLE")
-                return
-            if self.host_state == HostState.SHUTTING_DOWN:
-                if self._shutdown_mode == "drain":
-                    if (
-                        self._shutdown_deadline_monotonic is not None
-                        and time.monotonic() >= self._shutdown_deadline_monotonic
-                        and not self._shutdown_force_applied
-                    ):
-                        self._shutdown_force_applied = True
-                        self._abort_inflight_locked(reason="shutdown_timeout_force")
-                        print("[HOST] shutdown drain timeout reached -> escalating to force")
-                elif self._shutdown_mode == "force" and not self._shutdown_force_applied:
-                    self._shutdown_force_applied = True
-                    self._abort_inflight_locked(reason="shutdown_force")
+                self.host_state = HostState.NOT_RUN
+                print("[HOST] force stop complete -> state=NOT_RUN")
 
     def run(self) -> int:
         print(

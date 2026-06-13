@@ -152,12 +152,12 @@
 
         <div class="panel">
           <h3>Shutdown</h3>
+          <p class="subtle">Shutdown is only accepted when host is in NOT_RUN state.</p>
           <div class="filters">
             <select id="shutdownModeSelect">
               <option value="drain">drain</option>
               <option value="force">force</option>
             </select>
-            <input id="shutdownTimeoutInput" placeholder="timeout_sec (optional)" />
             <button id="shutdownBtn" class="btn warning">Shutdown</button>
           </div>
         </div>

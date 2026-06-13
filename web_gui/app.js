@@ -68,11 +68,34 @@ function pushHistory(entry) {
   renderCommandHistory();
 }
 
+const HOST_STATE_TRANSITIONS = {
+  start:         ["NOT_RUN"],
+  graceful_stop: ["RUNNING"],
+  force_stop:    ["RUNNING", "DRAINING"],
+  shutdown:      ["NOT_RUN"],
+};
+
+function updateButtonStates() {
+  const hostState = state.health?.host_state || "";
+  document.querySelectorAll("[data-command]").forEach((button) => {
+    const cmd = button.dataset.command;
+    const allowed = HOST_STATE_TRANSITIONS[cmd];
+    if (allowed) {
+      button.disabled = !allowed.includes(hostState);
+    }
+  });
+  const shutdownBtn = byId("shutdownBtn");
+  if (shutdownBtn) {
+    shutdownBtn.disabled = hostState !== "NOT_RUN";
+  }
+}
+
 function renderSummaryCards() {
   const cards = byId("summaryCards");
   const h = state.health || {};
+  const hostState = h.host_state || "-";
   const model = [
-    ["host_state", h.host_state || "-"],
+    ["host_state", hostState],
     ["queued", h.queued_count ?? "-"],
     ["starting", h.starting_count ?? "-"],
     ["running", h.running_count ?? "-"],
@@ -84,7 +107,8 @@ function renderSummaryCards() {
     .map(([label, value]) => `<div class="card"><div class="label">${label}</div><div class="value">${value}</div></div>`)
     .join("");
 
-  byId("topHostState").textContent = `host_state: ${h.host_state || "-"}`;
+  byId("topHostState").textContent = `host_state: ${hostState}`;
+  updateButtonStates();
 }
 
 function renderRecentTasks() {
@@ -368,6 +392,7 @@ function bindEvents() {
       showAlert("No task selected", "error");
       return;
     }
+    // Eligible: succeeded, failed, or aborted tasks
     await sendCommand("rerun", { task_ids: taskIds });
   });
 
@@ -418,17 +443,7 @@ function bindEvents() {
 
   byId("shutdownBtn").addEventListener("click", async () => {
     const mode = byId("shutdownModeSelect").value;
-    const timeoutRaw = byId("shutdownTimeoutInput").value.trim();
-    const payload = { mode };
-    if (timeoutRaw) {
-      const timeout = Number(timeoutRaw);
-      if (!Number.isFinite(timeout)) {
-        showAlert("timeout_sec must be numeric", "error");
-        return;
-      }
-      payload.timeout_sec = timeout;
-    }
-    await sendCommand("shutdown", payload);
+    await sendCommand("shutdown", { mode });
   });
 }
 
