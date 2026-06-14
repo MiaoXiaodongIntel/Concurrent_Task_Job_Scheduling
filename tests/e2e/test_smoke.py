@@ -13,10 +13,11 @@ from pathlib import Path
 from conftest import FIXTURES, HostProcess, http_get, http_post, wait_for_all_done, wait_for_server
 
 SAMPLE = FIXTURES / "sample_tasks.json"
+SAMPLE_RESOURCES = FIXTURES / "sample_resources.json"
 
 
 def test_start_and_complete() -> None:
-    with HostProcess(tasks_file=SAMPLE, max_concurrency=2) as port:
+    with HostProcess(tasks_file=SAMPLE, resources_file=SAMPLE_RESOURCES, max_concurrency=2) as port:
         # 1. Server ready
         assert wait_for_server(port, timeout=15), "FAIL: task_host did not start within 15 s"
         print("  [OK] server up")
