@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ctypes
 import os
+import random
 import re
 import subprocess
 import threading
@@ -30,6 +31,7 @@ class HostState(str, Enum):
 
 class TaskStatus(str, Enum):
     QUEUED = "queued"
+    PENDING = "pending"
     STARTING = "starting"
     RUNNING = "running"
     SUCCEEDED = "succeeded"
@@ -38,7 +40,8 @@ class TaskStatus(str, Enum):
 
 
 ALLOWED_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
-    TaskStatus.QUEUED: {TaskStatus.STARTING},
+    TaskStatus.QUEUED: {TaskStatus.STARTING, TaskStatus.PENDING},
+    TaskStatus.PENDING: {TaskStatus.QUEUED, TaskStatus.ABORTED},
     TaskStatus.STARTING: {TaskStatus.RUNNING, TaskStatus.FAILED, TaskStatus.ABORTED},
     TaskStatus.RUNNING: {TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.ABORTED},
     TaskStatus.SUCCEEDED: {TaskStatus.QUEUED},
@@ -51,6 +54,8 @@ ALLOWED_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
 class TaskJob:
     task_id: str
     commands: list[str]
+    resource: str = ""
+    priority: int = 100
     status: TaskStatus = TaskStatus.QUEUED
     created_at: str = field(default_factory=now_iso)
     started_at: str | None = None
@@ -60,12 +65,16 @@ class TaskJob:
     abort_reason: str | None = None
     last_output_ts: str | None = None
     log_path: str | None = None
+    blocked_by: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
             "task_id": self.task_id,
+            "resource": self.resource,
+            "priority": self.priority,
             "commands": self.commands,
             "status": self.status.value,
+            "blocked_by": self.blocked_by,
             "created_at": self.created_at,
             "started_at": self.started_at,
             "ended_at": self.ended_at,
@@ -222,9 +231,14 @@ class TaskManager:
         log_dir: Path,
         scheduler_tick: float,
         status_interval: float,
+        registered_resources: list[str] | None = None,
     ) -> None:
         self.tasks: dict[str, TaskJob] = {task.task_id: task for task in tasks}
-        self.queue: list[str] = [task.task_id for task in tasks]
+        # Queue is sorted by (priority asc, created_at asc)
+        self.queue: list[str] = sorted(
+            [task.task_id for task in tasks],
+            key=lambda tid: (self.tasks[tid].priority, self.tasks[tid].created_at),
+        )
         self.scheduler = scheduler
         self.runner = runner
         self.log_dir = log_dir
@@ -243,8 +257,21 @@ class TaskManager:
         self._shutdown_deadline_monotonic: float | None = None
         self._shutdown_force_applied = False
 
+        # Resource registry (loaded once, immutable after loading)
+        self._registered_resources: list[str] = list(registered_resources) if registered_resources else []
+        self._resources_loaded: bool = bool(registered_resources)
+        self._registered_resources_set: set[str] = set(self._registered_resources)
+
+        # Resource conflict tracking
+        self._resource_lock: dict[str, str] = {}  # resource_id -> task_id holding lock
+        self._pending_by_resource: dict[str, list[str]] = {}  # resource_id -> [task_id, ...]
+
     @staticmethod
-    def _build_task_from_payload(item: object, fallback_index: int) -> TaskJob:
+    def _build_task_from_payload(
+        item: object,
+        fallback_index: int,
+        registered_resources: set[str] | None = None,
+    ) -> TaskJob:
         if not isinstance(item, dict):
             raise ValueError(f"task index {fallback_index} is not an object")
 
@@ -263,17 +290,42 @@ class TaskManager:
                 raise ValueError(f"task {task_id} has invalid command: {command!r}")
             commands.append(command)
 
-        return TaskJob(task_id=task_id, commands=commands)
+        resource_raw = item.get("resource")
+        if not isinstance(resource_raw, str) or not resource_raw.strip():
+            raise ValueError(f"task {task_id} must have a non-empty 'resource' string field")
+        resource = resource_raw.strip()
+
+        if registered_resources is not None and resource not in registered_resources:
+            raise ValueError(
+                f"task {task_id} references unregistered resource: {resource!r}"
+            )
+
+        priority_raw = item.get("priority")
+        if priority_raw is None:
+            raise ValueError(f"task {task_id} must have a 'priority' integer field")
+        try:
+            priority = int(priority_raw)
+            if priority < 1:
+                raise ValueError("priority must be positive")
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"task {task_id} 'priority' must be a positive integer: {exc}"
+            ) from exc
+
+        return TaskJob(task_id=task_id, commands=commands, resource=resource, priority=priority)
 
     @staticmethod
-    def _parse_task_payload(tasks_payload: object) -> list[TaskJob]:
+    def _parse_task_payload(
+        tasks_payload: object,
+        registered_resources: set[str] | None = None,
+    ) -> list[TaskJob]:
         if not isinstance(tasks_payload, list) or not tasks_payload:
             raise ValueError("tasks must be a non-empty list")
 
         built: list[TaskJob] = []
         seen_ids: set[str] = set()
         for idx, item in enumerate(tasks_payload, start=1):
-            task = TaskManager._build_task_from_payload(item, idx)
+            task = TaskManager._build_task_from_payload(item, idx, registered_resources)
             if task.task_id in seen_ids:
                 raise ValueError(f"duplicate task_id in payload: {task.task_id}")
             seen_ids.add(task.task_id)
@@ -308,12 +360,24 @@ class TaskManager:
                 return False
             self.host_state = HostState.STOPPING_FORCE
 
+            # Abort pending tasks immediately (no process to terminate).
+            for task in self.tasks.values():
+                if task.status == TaskStatus.PENDING:
+                    self._set_task_status(task, TaskStatus.ABORTED)
+                    task.abort_reason = "force_stop"
+                    task.blocked_by = None
+                    task.ended_at = now_iso()
+            self._pending_by_resource.clear()
+
             # Mark startup-phase tasks as aborted immediately.
             for task in self.tasks.values():
                 if task.status == TaskStatus.STARTING:
                     self._set_task_status(task, TaskStatus.ABORTED)
                     task.abort_reason = "force_stop_during_starting"
                     task.ended_at = now_iso()
+
+            # Clear resource locks (all locks are released by force-stop).
+            self._resource_lock.clear()
 
             handles = list(self._running_handles.items())
             for task_id, handle in handles:
@@ -355,6 +419,16 @@ class TaskManager:
         return True, "accepted"
 
     def _abort_inflight_locked(self, reason: str) -> None:
+        # Abort pending tasks (no process to kill).
+        for task in self.tasks.values():
+            if task.status == TaskStatus.PENDING:
+                self._set_task_status(task, TaskStatus.ABORTED)
+                task.abort_reason = reason
+                task.blocked_by = None
+                task.ended_at = now_iso()
+        self._pending_by_resource.clear()
+        self._resource_lock.clear()
+
         for task in self.tasks.values():
             if task.status == TaskStatus.STARTING:
                 self._set_task_status(task, TaskStatus.ABORTED)
@@ -389,7 +463,7 @@ class TaskManager:
             }
 
         try:
-            parsed_tasks = self._parse_task_payload(tasks_payload)
+            parsed_tasks = self._parse_task_payload(tasks_payload, self._registered_resources_set)
         except ValueError as exc:
             return {
                 "accepted": False,
@@ -410,13 +484,14 @@ class TaskManager:
                 }
 
             inflight = self._inflight_count()
-            if mode == "replace" and inflight > 0:
+            pending_count = sum(1 for t in self.tasks.values() if t.status == TaskStatus.PENDING)
+            if mode == "replace" and (inflight > 0 or pending_count > 0):
                 return {
                     "accepted": False,
                     "submit_mode": mode,
                     "accepted_task_ids": [],
                     "reason_code": "inflight_exists",
-                    "message": "replace is rejected while tasks are running or starting",
+                    "message": "replace is rejected while tasks are running, starting, or pending",
                 }
 
             if mode == "append":
@@ -431,13 +506,18 @@ class TaskManager:
                     }
                 for task in parsed_tasks:
                     self.tasks[task.task_id] = task
-                    self.queue.append(task.task_id)
+                    self._insert_queue_sorted(task.task_id)
             else:
                 self.tasks = {task.task_id: task for task in parsed_tasks}
-                self.queue = [task.task_id for task in parsed_tasks]
+                self.queue = sorted(
+                    [task.task_id for task in parsed_tasks],
+                    key=lambda tid: (self.tasks[tid].priority, self.tasks[tid].created_at),
+                )
                 self._running_handles.clear()
                 self._reader_threads.clear()
                 self._log_files.clear()
+                self._resource_lock.clear()
+                self._pending_by_resource.clear()
 
         accepted_task_ids = [task.task_id for task in parsed_tasks]
         print(f"[HOST] submit accepted mode={mode} tasks={accepted_task_ids}")
@@ -450,7 +530,7 @@ class TaskManager:
         }
 
     def abort_task(self, task_id: str) -> dict[str, Any]:
-        """Abort a single running task by task_id without affecting host or sibling tasks."""
+        """Abort a single running or pending task by task_id without affecting host or sibling tasks."""
         with self._lock:
             task = self.tasks.get(task_id)
             if task is None:
@@ -460,12 +540,29 @@ class TaskManager:
                     "reason_code": "task_not_found",
                     "message": f"task not found: {task_id}",
                 }
+            if task.status == TaskStatus.PENDING:
+                # Remove from pending index; no process to terminate.
+                resource = task.resource
+                pending_list = self._pending_by_resource.get(resource, [])
+                if task_id in pending_list:
+                    pending_list.remove(task_id)
+                self._set_task_status(task, TaskStatus.ABORTED)
+                task.abort_reason = "user_abort"
+                task.blocked_by = None
+                task.ended_at = now_iso()
+                print(f"[HOST] abort_task accepted (pending) task={task_id}")
+                return {
+                    "accepted": True,
+                    "task_id": task_id,
+                    "reason_code": "accepted",
+                    "message": f"task {task_id} aborted (was pending)",
+                }
             if task.status != TaskStatus.RUNNING:
                 return {
                     "accepted": False,
                     "task_id": task_id,
-                    "reason_code": "task_not_running",
-                    "message": f"task {task_id} is not running (status={task.status.value})",
+                    "reason_code": "task_not_abortable",
+                    "message": f"task {task_id} is not running or pending (status={task.status.value})",
                 }
             handle = self._running_handles.get(task_id)
             self._set_task_status(task, TaskStatus.ABORTED)
@@ -507,9 +604,19 @@ class TaskManager:
                 task.exit_code = None
                 task.abort_reason = None
                 task.last_output_ts = None
-                if task.task_id not in self.queue:
-                    self.queue.append(task.task_id)
+                task.blocked_by = None
                 accepted.append(task.task_id)
+
+            # Rerun tasks are appended to the tail sorted among themselves by
+            # (priority, created_at) — they do not jump ahead of waiting queued tasks.
+            if accepted:
+                accepted_sorted = sorted(
+                    accepted,
+                    key=lambda tid: (self.tasks[tid].priority, self.tasks[tid].created_at),
+                )
+                for tid in accepted_sorted:
+                    if tid not in self.queue:
+                        self.queue.append(tid)
 
         if accepted:
             print(f"[HOST] rerun accepted tasks={accepted}")
@@ -526,6 +633,126 @@ class TaskManager:
                 f"Invalid status transition: {task.task_id} {task.status.value} -> {new_status.value}"
             )
         task.status = new_status
+
+    def _insert_queue_sorted(self, task_id: str) -> None:
+        """Insert task_id into the queue at the correct position by (priority, created_at)."""
+        task = self.tasks[task_id]
+        key = (task.priority, task.created_at)
+        for i, tid in enumerate(self.queue):
+            other = self.tasks[tid]
+            if key < (other.priority, other.created_at):
+                self.queue.insert(i, task_id)
+                return
+        self.queue.append(task_id)
+
+    def _insert_pending_sorted(self, resource: str, task_id: str) -> None:
+        """Insert task_id into pending_by_resource[resource] sorted by (priority, created_at)."""
+        pending_list = self._pending_by_resource.setdefault(resource, [])
+        task = self.tasks[task_id]
+        key = (task.priority, task.created_at)
+        for i, tid in enumerate(pending_list):
+            other = self.tasks[tid]
+            if key < (other.priority, other.created_at):
+                pending_list.insert(i, task_id)
+                return
+        pending_list.append(task_id)
+
+    def _wake_pending_for_resource(self, resource: str) -> None:
+        """Promote the single highest-priority pending task for a resource back to queued.
+        Called while holding self._lock.
+        """
+        pending_list = self._pending_by_resource.get(resource, [])
+        if not pending_list:
+            return
+
+        # All tasks at the front share the minimum priority; choose one randomly among ties.
+        min_prio = self.tasks[pending_list[0]].priority
+        same_prio = [tid for tid in pending_list if self.tasks[tid].priority == min_prio]
+        chosen = random.choice(same_prio)
+
+        pending_list.remove(chosen)
+
+        task = self.tasks[chosen]
+        task.blocked_by = None
+        self._set_task_status(task, TaskStatus.QUEUED)
+        self._insert_queue_sorted(chosen)
+        print(f"[HOST] resource {resource!r} released -> promoted pending task {chosen} to queued")
+
+    def _convert_all_pending_to_queued_locked(self) -> None:
+        """Batch-convert all pending tasks to queued (used when DRAINING -> NOT_RUN).
+        Called while holding self._lock.
+        """
+        for task in self.tasks.values():
+            if task.status == TaskStatus.PENDING:
+                task.blocked_by = None
+                self._set_task_status(task, TaskStatus.QUEUED)
+                self._insert_queue_sorted(task.task_id)
+        self._pending_by_resource.clear()
+
+    def load_resources(self, resources: list[str]) -> dict[str, Any]:
+        """Register the resource list. Accepted only when host is NOT_RUN and not yet loaded."""
+        with self._lock:
+            if self.host_state != HostState.NOT_RUN:
+                return {
+                    "accepted": False,
+                    "reason_code": "invalid_host_state",
+                    "message": "resources can only be loaded when host is NOT_RUN",
+                }
+            if self._resources_loaded:
+                return {
+                    "accepted": False,
+                    "reason_code": "already_loaded",
+                    "message": "resources have already been loaded",
+                }
+            if not resources:
+                return {
+                    "accepted": False,
+                    "reason_code": "empty_resources",
+                    "message": "resources list must not be empty",
+                }
+
+            # Deduplicate while preserving order.
+            seen: set[str] = set()
+            deduped: list[str] = []
+            for r in resources:
+                if not isinstance(r, str) or not r.strip():
+                    return {
+                        "accepted": False,
+                        "reason_code": "empty_resources",
+                        "message": "all resource identifiers must be non-empty strings",
+                    }
+                if r not in seen:
+                    seen.add(r)
+                    deduped.append(r)
+
+            self._registered_resources = deduped
+            self._registered_resources_set = set(deduped)
+            self._resources_loaded = True
+
+        print(f"[HOST] resources loaded: {deduped}")
+        return {
+            "accepted": True,
+            "reason_code": "accepted",
+            "message": f"loaded {len(deduped)} resources",
+        }
+
+    def snapshot_resources(self) -> dict[str, Any]:
+        """Return the current resource registry and occupancy status."""
+        with self._lock:
+            resources = []
+            for resource in self._registered_resources:
+                held_by = self._resource_lock.get(resource)
+                pending_for = list(self._pending_by_resource.get(resource, []))
+                resources.append({
+                    "resource": resource,
+                    "status": "occupied" if held_by else "free",
+                    "held_by": held_by,
+                    "pending_tasks": pending_for,
+                })
+            return {
+                "loaded": self._resources_loaded,
+                "resources": resources,
+            }
 
     def control(
         self,
@@ -637,6 +864,7 @@ class TaskManager:
         resource = self._resource_probe.snapshot()
         with self._lock:
             queued = sum(1 for t in self.tasks.values() if t.status == TaskStatus.QUEUED)
+            pending = sum(1 for t in self.tasks.values() if t.status == TaskStatus.PENDING)
             starting = sum(1 for t in self.tasks.values() if t.status == TaskStatus.STARTING)
             running = sum(1 for t in self.tasks.values() if t.status == TaskStatus.RUNNING)
             completed = sum(
@@ -648,6 +876,7 @@ class TaskManager:
             return {
                 "host_state": self.host_state.value,
                 "queued_count": queued,
+                "pending_count": pending,
                 "starting_count": starting,
                 "running_count": running,
                 "completed_count": completed,
@@ -728,6 +957,7 @@ class TaskManager:
 
         with self._lock:
             queued = sum(1 for t in self.tasks.values() if t.status == TaskStatus.QUEUED)
+            pending = sum(1 for t in self.tasks.values() if t.status == TaskStatus.PENDING)
             starting = sum(1 for t in self.tasks.values() if t.status == TaskStatus.STARTING)
             running = sum(1 for t in self.tasks.values() if t.status == TaskStatus.RUNNING)
             done = sum(
@@ -738,7 +968,7 @@ class TaskManager:
 
         print(
             "[HOST] "
-            f"state={self.host_state.value} queued={queued} starting={starting} "
+            f"state={self.host_state.value} queued={queued} pending={pending} starting={starting} "
             f"running={running} completed={done}/{len(self.tasks)}"
         )
         self._last_status_emit_monotonic = now_mono
@@ -801,6 +1031,11 @@ class TaskManager:
                 logf.flush()
                 logf.close()
 
+            # Release resource lock and wake the highest-priority pending task.
+            resource = task.resource
+            self._resource_lock.pop(resource, None)
+            self._wake_pending_for_resource(resource)
+
         print(f"[TASK] {task_id} finished with exit_code={exit_code} status={task.status.value}")
 
     def _start_task(self, task_id: str) -> None:
@@ -815,7 +1050,10 @@ class TaskManager:
             task.ended_at = None
             task.exit_code = None
             task.abort_reason = None
+            task.blocked_by = None
             task.pid = None
+            # Write resource lock at STARTING to prevent same-tick double-admission.
+            self._resource_lock[task.resource] = task_id
 
         self.log_dir.mkdir(parents=True, exist_ok=True)
         log_path = self.log_dir / f"{task.task_id}.log"
@@ -891,13 +1129,22 @@ class TaskManager:
                 for t in self.tasks.values()
                 if t.status in {TaskStatus.STARTING, TaskStatus.RUNNING}
             )
-            to_start = self.scheduler.pick_next_tasks(
+            to_start, to_pending = self.scheduler.pick_next_tasks(
                 queue=self.queue,
                 running_count=running_count,
                 host_running=self.host_state == HostState.RUNNING,
                 is_runnable=lambda task_id: self.tasks[task_id].status == TaskStatus.QUEUED,
                 get_resource_usage=self._resource_probe.snapshot,
+                get_task_resource=lambda task_id: self.tasks[task_id].resource,
+                is_resource_free=lambda resource: resource not in self._resource_lock,
             )
+            # Immediately mark pending tasks with the blocking task_id.
+            for task_id in to_pending:
+                task = self.tasks[task_id]
+                self._set_task_status(task, TaskStatus.PENDING)
+                task.blocked_by = self._resource_lock.get(task.resource)
+                self._insert_pending_sorted(task.resource, task_id)
+                print(f"[TASK] {task_id} -> pending (resource={task.resource!r} blocked_by={task.blocked_by!r})")
 
         for task_id in to_start:
             with self._lock:
@@ -924,6 +1171,8 @@ class TaskManager:
         with self._lock:
             inflight = self._inflight_count()
             if self.host_state == HostState.DRAINING and inflight == 0:
+                # Batch-convert all pending tasks to queued before leaving DRAINING.
+                self._convert_all_pending_to_queued_locked()
                 self.host_state = HostState.NOT_RUN
                 print("[HOST] draining complete -> state=NOT_RUN")
                 return

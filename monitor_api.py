@@ -102,6 +102,10 @@ class MonitorServer:
                     self._write_json(200, manager.snapshot_health())
                     return
 
+                if path == "/resources":
+                    self._write_json(200, manager.snapshot_resources())
+                    return
+
                 if path == "/tasks":
                     self._write_json(200, {"tasks": manager.snapshot_tasks()})
                     return
@@ -137,12 +141,60 @@ class MonitorServer:
                 parsed = urlparse(self.path)
                 path = parsed.path
 
+                if path == "/resources":
+                    try:
+                        payload = self._read_json()
+                    except ValueError as exc:
+                        self._write_json(400, {"error": str(exc)})
+                        return
+                    resources_raw = payload.get("resources") if isinstance(payload, dict) else None
+                    if not isinstance(resources_raw, list):
+                        self._write_json(400, {"accepted": False, "command": "load_resources",
+                                               "reason_code": "empty_resources",
+                                               "message": "payload must contain a 'resources' list"})
+                        return
+                    host_state_before = manager.snapshot_health()["host_state"]
+                    result = manager.load_resources(resources_raw)
+                    host_state_after_expected = manager.snapshot_health()["host_state"]
+                    response = {
+                        "accepted": result["accepted"],
+                        "command": "load_resources",
+                        "requested_at": now_iso(),
+                        "host_state_before": host_state_before,
+                        "host_state_after_expected": host_state_after_expected,
+                        "message": result["message"],
+                        "reason_code": result["reason_code"],
+                        "affected_task_ids": [],
+                    }
+                    self._write_json(200 if result["accepted"] else 400, response)
+                    return
+
                 if path == "/tasks/submit":
                     try:
                         payload = self._read_json()
                     except ValueError as exc:
                         self._write_json(400, {"error": str(exc)})
                         return
+                    submit_mode_raw = payload.get("submit_mode", "append")
+                    submit_mode = str(submit_mode_raw)
+                    tasks_payload = payload.get("tasks")
+                    host_state_before = manager.snapshot_health()["host_state"]
+                    result = manager.submit_tasks(tasks_payload=tasks_payload, submit_mode=submit_mode)
+                    host_state_after_expected = manager.snapshot_health()["host_state"]
+                    status_code = 200 if result.get("accepted") else 400
+                    response = {
+                        "accepted": bool(result.get("accepted")),
+                        "command": "submit_tasks",
+                        "requested_at": now_iso(),
+                        "host_state_before": host_state_before,
+                        "host_state_after_expected": host_state_after_expected,
+                        "message": result.get("message", ""),
+                        "reason_code": result.get("reason_code", ""),
+                        "affected_task_ids": result.get("accepted_task_ids", []),
+                        "submit_mode": result.get("submit_mode", submit_mode),
+                    }
+                    self._write_json(status_code, response)
+                    return
 
                 if path.startswith("/tasks/") and path.endswith("/abort"):
                     task_id = path[len("/tasks/"):-len("/abort")]
@@ -164,28 +216,6 @@ class MonitorServer:
                         "affected_task_ids": [task_id] if result["accepted"] else [],
                     }
                     self._write_json(200 if result["accepted"] else 400, response)
-                    return
-
-                    submit_mode_raw = payload.get("submit_mode", "append")
-                    submit_mode = str(submit_mode_raw)
-                    tasks_payload = payload.get("tasks")
-                    host_state_before = manager.snapshot_health()["host_state"]
-                    result = manager.submit_tasks(tasks_payload=tasks_payload, submit_mode=submit_mode)
-                    host_state_after_expected = manager.snapshot_health()["host_state"]
-
-                    status_code = 200 if result.get("accepted") else 400
-                    response = {
-                        "accepted": bool(result.get("accepted")),
-                        "command": "submit_tasks",
-                        "requested_at": now_iso(),
-                        "host_state_before": host_state_before,
-                        "host_state_after_expected": host_state_after_expected,
-                        "message": result.get("message", ""),
-                        "reason_code": result.get("reason_code", ""),
-                        "affected_task_ids": result.get("accepted_task_ids", []),
-                        "submit_mode": result.get("submit_mode", submit_mode),
-                    }
-                    self._write_json(status_code, response)
                     return
 
                 control_map = {

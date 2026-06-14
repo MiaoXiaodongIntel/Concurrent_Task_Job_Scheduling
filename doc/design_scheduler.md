@@ -10,30 +10,44 @@ Implementation file: [../scheduler.py](../scheduler.py)
 
 ## 2. Inputs
 
-1. `queue: list[str]` (mutable FIFO task_id queue)
+1. `queue: list[str]` (priority-sorted task_id queue, maintained by TaskManager; lower priority number = higher priority, stable by `created_at`)
 2. `running_count: int`
 3. `host_running: bool` (`true` only when host state is `RUNNING`)
 4. `is_runnable: Callable[[str], bool]`
 5. `get_resource_usage: Callable[[], ResourceUsage | None]` (optional, provided by TaskManager), including `cpu_percent`, `memory_percent`, and `disk_active_percent`
+6. `get_task_resource: Callable[[str], str]` — returns the `resource` identifier for a given task_id
+7. `is_resource_free: Callable[[str], bool]` — returns `True` when the given resource is not held by any `starting` or `running` task
 
 ## 3. Outputs
 
-1. `list[str]` of selected task IDs for current scheduling tick
+1. `tuple[list[str], list[str]]` — `(to_start, to_pending)` for current scheduling tick
+   - `to_start`: task IDs admitted to `starting`
+   - `to_pending`: task IDs blocked by resource conflict, to be moved to `pending`
 
 ## 4. Concrete Admission Policy (Current Implementation)
 
-1. If host is not running: return empty list.
-2. If resource snapshot is available and any threshold is exceeded (`cpu`, `memory`, `disk_active_time`): return empty list for this tick.
-3. Enforce hard cap `max_concurrency`.
-4. Select from queue in FIFO order.
-5. Skip non-runnable task IDs using `is_runnable`.
-6. Stop selecting when available slots are exhausted.
+1. If host is not running: return `([], [])`.
+2. If host resource snapshot is available and any host threshold is exceeded (`cpu`, `memory`, `disk_active_time`): return `([], [])` for this tick.
+3. Enforce hard cap `max_concurrency` for `to_start` slots (`available_slots = max_concurrency - running_count`).
+4. Iterate queue in order (queue is pre-sorted by TaskManager in priority order):
+   a. Pop next task_id.
+   b. Check `is_runnable`: if `False`, skip (do not count against slots, do not pending).
+   c. Check `is_resource_free(task.resource)`:
+      - `True`: admit task → append to `to_start`, decrement `available_slots`.
+      - `False`: resource conflict → append to `to_pending` (does **not** consume a slot).
+   d. Continue until `available_slots == 0` **or** queue is exhausted.
+5. Return `(to_start, to_pending)`.
+
+Key behavioral properties:
+- Resource conflict does **not** block slots: a pending task frees the slot for the next task (Decision H).
+- Resource lock written by TaskManager when task enters `starting` (Decision V1), so within one tick a resource claimed by an earlier candidate correctly blocks a later candidate in the same tick.
 
 ## 5. Side Effects and Constraints
 
-1. `pick_next_tasks` consumes from input `queue` by popping selected/skipped IDs.
-2. Scheduler does not modify task state directly.
-3. Resource guardrails suspend admission only; they do not mutate task state.
+1. `pick_next_tasks` consumes from input `queue` by popping selected/skipped/pending IDs.
+2. Scheduler does not modify task state directly; TaskManager applies pending and starting transitions.
+3. Host resource guardrails suspend admission only; they do not mutate task state.
+4. Queue ordering is maintained by TaskManager (not Scheduler); Scheduler treats the queue as already sorted.
 
 ## 6. Configurable Knobs
 
@@ -73,8 +87,10 @@ When host is `NOT_RUN`, `DRAINING`, `STOPPING_FORCE`, `IDLE`, or `SHUTTING_DOWN`
 ## 7. Interface with TaskManager
 
 1. `TaskManager._try_schedule()` calls `Scheduler.pick_next_tasks(...)`.
-2. Returned task IDs are started by `TaskManager._start_task(...)`.
-3. Status transitions remain exclusively in `TaskManager`.
+2. `to_start` task IDs are started by `TaskManager._start_task(...)`, which writes the resource lock when entering `starting`.
+3. `to_pending` task IDs are moved to `pending` state by TaskManager, stored in `pending_by_resource`.
+4. Status transitions remain exclusively in `TaskManager`.
+5. Queue priority ordering is maintained by TaskManager; Scheduler receives an already-sorted queue.
 
 Related docs:
 

@@ -30,6 +30,7 @@
       <button class="nav-link" data-view="tasksView">Tasks</button>
       <button class="nav-link" data-view="taskDetailView">Task Detail</button>
       <button class="nav-link" data-view="submitView">Submit Tasks</button>
+      <button class="nav-link" data-view="resourcesView">Resources</button>
     </aside>
 
     <section class="content">
@@ -69,6 +70,7 @@
               <thead>
                 <tr>
                   <th>task_id</th>
+                  <th>resource</th>
                   <th>status</th>
                   <th>started_at</th>
                   <th>ended_at</th>
@@ -108,6 +110,7 @@
             <select id="statusFilterSelect">
               <option value="all">All Status</option>
               <option value="queued">queued</option>
+              <option value="pending">pending</option>
               <option value="starting">starting</option>
               <option value="running">running</option>
               <option value="succeeded">succeeded</option>
@@ -124,6 +127,8 @@
                 <tr>
                   <th><input id="checkAllTasks" type="checkbox" /></th>
                   <th>task_id</th>
+                  <th>resource</th>
+                  <th>priority</th>
                   <th>status</th>
                   <th>pid</th>
                   <th>started_at</th>
@@ -176,6 +181,36 @@
           </div>
           <textarea id="submitJsonEditor" class="json-editor" spellcheck="false"></textarea>
           <pre id="submitResult" class="result-box"></pre>
+        </div>
+      </section>
+
+      <section id="resourcesView" class="view hidden">
+        <h2>Resources</h2>
+        <div class="panel" id="resourcesLoadPanel">
+          <p class="subtle">Load a resources definition — only available when host is <strong>NOT_RUN</strong> and resources have not yet been loaded.</p>
+          <div class="filters" style="margin-top:8px">
+            <button id="loadResourceFileBtn" class="btn btn-secondary">Load File</button>
+            <input id="resourceFileInput" type="file" accept=".json" style="display:none" />
+            <button id="submitResourceListBtn" class="btn">Submit Resource List</button>
+          </div>
+          <textarea id="resourcesJsonEditor" class="json-editor" spellcheck="false">{ "resources": ["machine-A", "machine-B"] }</textarea>
+          <pre id="resourcesResult" class="result-box"></pre>
+        </div>
+        <div class="panel" id="resourcesStatusPanel">
+          <h3>Resource Status</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>resource</th>
+                  <th>status</th>
+                  <th>held_by</th>
+                  <th>pending_tasks</th>
+                </tr>
+              </thead>
+              <tbody id="resourcesTableTbody"></tbody>
+            </table>
+          </div>
         </div>
       </section>
 

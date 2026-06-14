@@ -44,27 +44,31 @@ Scope:
 
 ### 4.1 Host Health Model (`GET /health`)
 
-1. `host_state`: `NOT_RUN|RUNNING|DRAINING|STOPPING_FORCE|IDLE|SHUTTING_DOWN`
+1. `host_state`: `NOT_RUN|RUNNING|DRAINING|STOPPING_FORCE|SHUTTING_DOWN`
 2. `queued_count`: integer
-3. `starting_count`: integer
-4. `running_count`: integer
-5. `completed_count`: integer
-6. `total_count`: integer
-7. `last_status_ts`: timestamp string
+3. `pending_count`: integer
+4. `starting_count`: integer
+5. `running_count`: integer
+6. `completed_count`: integer
+7. `total_count`: integer
+8. `last_status_ts`: timestamp string
 
 ### 4.2 Task Model (`GET /tasks`, `GET /tasks/{id}`)
 
 1. `task_id`: string
-2. `commands`: list of strings
-3. `status`: `queued|starting|running|succeeded|failed|aborted`
-4. `created_at`: timestamp string
-5. `started_at`: timestamp string or null
-6. `ended_at`: timestamp string or null
-7. `pid`: integer or null
-8. `exit_code`: integer or null
-9. `abort_reason`: string or null
-10. `last_output_ts`: timestamp string or null
-11. `log_path`: string or null
+2. `resource`: string
+3. `priority`: integer
+4. `commands`: list of strings
+5. `status`: `queued|pending|starting|running|succeeded|failed|aborted`
+6. `blocked_by`: string (task_id of holder) or null
+7. `created_at`: timestamp string
+8. `started_at`: timestamp string or null
+9. `ended_at`: timestamp string or null
+10. `pid`: integer or null
+11. `exit_code`: integer or null
+12. `abort_reason`: string or null
+13. `last_output_ts`: timestamp string or null
+14. `log_path`: string or null
 
 ### 4.3 Log Cursor Model (`GET /tasks/{id}/logs`)
 
@@ -74,11 +78,11 @@ Scope:
 4. `eof`: boolean
 5. `lines`: list of strings
 
-### 4.4 Control Response Model (`POST /control/*`, `POST /tasks/submit`, `POST /tasks/{id}/abort`)
+### 4.4 Control Response Model (`POST /control/*`, `POST /tasks/submit`, `POST /tasks/{id}/abort`, `POST /resources`)
 
 Common fields:
 1. `accepted`: boolean
-2. `command`: `start|graceful_stop|force_stop|rerun|shutdown|submit_tasks|abort_task`
+2. `command`: `start|graceful_stop|force_stop|rerun|shutdown|submit_tasks|abort_task|load_resources`
 3. `requested_at`: timestamp string
 4. `host_state_before`: host state string
 5. `host_state_after_expected`: host state string
@@ -90,6 +94,15 @@ Optional fields:
 1. `rejected_task_ids`: list of strings (rerun)
 2. `submit_mode`: `append|replace` (submit_tasks)
 
+### 4.5 Resource Model (`GET /resources`)
+
+1. `loaded`: boolean
+2. `resources`: list of resource objects:
+   - `resource`: string
+   - `status`: `"occupied"` or `"free"`
+   - `held_by`: string or null
+   - `pending_tasks`: list of strings (task_ids, sorted by priority ascending)
+
 ## 5. Endpoint Contract Table (Frozen v1)
 
 | Endpoint | Method | Request | Success (HTTP 200) | Rejection/Error |
@@ -98,6 +111,7 @@ Optional fields:
 | `/tasks` | GET | none | `{ "tasks": Task[] }` | `404 {"error": ...}` for unknown route |
 | `/tasks/{id}` | GET | path `id` | `Task` | `404 {"error": "task not found: <id>"}` |
 | `/tasks/{id}/logs` | GET | query `cursor` (int, default `0`), `limit` (int, default `200`) | log cursor model | `400 {"error": "cursor and limit must be integers"}`; `404 task not found` |
+| `/resources` | GET | none | resource model | `404 {"error": ...}` for unknown route |
 | `/control/start` | POST | empty object or no body | control response | `400` + `accepted=false` and `reason_code` |
 | `/control/graceful-stop` | POST | empty object or no body | control response | `400` + `accepted=false` and `reason_code` |
 | `/control/force-stop` | POST | empty object or no body | control response | `400` + `accepted=false` and `reason_code` |
@@ -105,10 +119,13 @@ Optional fields:
 | `/control/shutdown` | POST | `{ "mode": "drain|force", "timeout_sec": number? }` | control response | `400` + `accepted=false` and `reason_code` |
 | `/tasks/submit` | POST | `{ "submit_mode": "append|replace", "tasks": TaskPayload[] }` | submit response | `400` + `accepted=false` and `reason_code` |
 | `/tasks/{id}/abort` | POST | empty object or no body | control response | `400` + `accepted=false` and `reason_code` |
+| `/resources` | POST | `{ "resources": string[] }` | control response | `400` + `accepted=false` and `reason_code` |
 
 `TaskPayload`:
 1. `task_id`: optional string (auto-generated if missing/empty)
 2. `commands`: required non-empty list of non-empty strings
+3. `resource`: required non-empty string (must be a registered resource)
+4. `priority`: required positive integer
 
 ## 6. State Preconditions for Control Commands
 
@@ -116,7 +133,7 @@ Optional fields:
 
 | Command | Accepted when host_state is | Rejected when host_state is | Rejection reason_code |
 |---|---|---|---|
-| `start` | `NOT_RUN`, `IDLE` | `RUNNING`, `DRAINING`, `STOPPING_FORCE`, `SHUTTING_DOWN` | `invalid_state` |
+| `start` | `NOT_RUN` | `RUNNING`, `DRAINING`, `STOPPING_FORCE`, `SHUTTING_DOWN` | `invalid_state` |
 | `graceful_stop` | `RUNNING` | all others | `invalid_state` |
 | `force_stop` | `RUNNING`, `DRAINING` | all others | `invalid_state` |
 | `shutdown` | first valid call from any non-shutdown state | if shutdown already requested | `shutdown_already_requested` |
@@ -129,12 +146,13 @@ Shutdown-specific parameter validation:
 
 | Command | Task eligibility | Rejection reason_code |
 |---|---|---|
-| `rerun` | task must exist and status is `succeeded` or `failed` | `no_eligible_task` when none accepted |
-| `abort_task` | task must exist and status is `running` | `task_not_found` or `task_not_running` |
+| `rerun` | task must exist and status is `succeeded`, `failed`, or `aborted` | `no_eligible_task` when none accepted |
+| `abort_task` | task must exist and status is `running` or `pending` | `task_not_found` or `task_not_abortable` |
 | `submit_tasks` (`append`) | all incoming `task_id` must be non-duplicate against existing tasks | `duplicate_task_id` |
-| `submit_tasks` (`replace`) | no in-flight tasks (`starting` or `running`) | `inflight_exists` |
+| `submit_tasks` (`replace`) | no in-flight tasks (`starting` or `running`) and no `pending` tasks | `inflight_exists` |
 | `submit_tasks` (all modes) | host must not be shutting down | `host_shutting_down` |
-| `submit_tasks` (all modes) | payload shape must be valid | `invalid_task_payload`, `invalid_submit_mode` |
+| `submit_tasks` (all modes) | payload shape must be valid; `resource` registered; `priority` positive int | `invalid_task_payload`, `invalid_submit_mode`, `resource_not_registered`, `missing_resource_field`, `missing_priority_field`, `invalid_priority` |
+| `load_resources` | host must be `NOT_RUN`; resources not yet loaded; list must be non-empty | `invalid_host_state`, `already_loaded`, `empty_resources` |
 
 ## 7. Reason Code Dictionary (Frozen v1)
 
@@ -148,7 +166,10 @@ Shutdown-specific parameter validation:
 6. `invalid_timeout`
 7. `unknown_command`
 8. `task_not_found`
-9. `task_not_running`
+9. `task_not_abortable`
+10. `invalid_host_state`
+11. `already_loaded`
+12. `empty_resources`
 
 ### 7.2 Task submission reason_code
 
@@ -158,6 +179,10 @@ Shutdown-specific parameter validation:
 4. `host_shutting_down`
 5. `inflight_exists`
 6. `duplicate_task_id`
+7. `missing_resource_field`
+8. `resource_not_registered`
+9. `missing_priority_field`
+10. `invalid_priority`
 
 ## 8. Frontend Handling Rules
 
@@ -167,18 +192,23 @@ Shutdown-specific parameter validation:
 4. For `rerun`, show partial result if `affected_task_ids` is non-empty and `rejected_task_ids` exists.
 5. Logs page keeps `cursor` per task and requests from `next_cursor`.
 6. When `host_state=SHUTTING_DOWN`, disable mutable actions except passive refresh.
+7. Task status `pending` should render with a distinct visual style (e.g., yellow/amber) and show `blocked_by` as a tooltip or inline label.
+8. `[Abort]` button in Tasks List and Task Detail is enabled for both `running` and `pending` status.
+9. `[Rerun]` button is enabled only for `succeeded`, `failed`, and `aborted` status; disabled for `pending` with tooltip "Task is waiting for resource".
+10. Resources page polling: `GET /resources` every 1 second when the Resources tab is active.
 
 ## 9. GUI Information Architecture
 
 Primary pages:
-1. Dashboard — unified observation + control (summary cards, host commands, resources, recent tasks, command history)
+1. Dashboard — unified observation + control (summary cards, host commands, system resources, recent tasks, command history)
 2. Tasks
 3. Task Detail (with logs)
 4. Submit Tasks
+5. Resources
 
 Navigation style:
 1. Top bar: host status label, "Updated Xs ago" refresh indicator, manual Refresh Now button
-2. Left nav: 4 items — Dashboard / Tasks / Task Detail / Submit Tasks
+2. Left nav: 5 items — Dashboard / Tasks / Task Detail / Submit Tasks / Resources
 3. Main panel: page content
 
 UX principles applied:
@@ -198,18 +228,18 @@ UX principles applied:
 | WEB TASK HOST                  host_state: RUNNING   Updated 1s ago [Refresh] |
 +----------------------+---------------------------------------------------------+
 | Left Nav             | Summary Cards                                           |
-| - Dashboard (active) | [host_state] [queued] [starting] [running] [completed]  |
+| - Dashboard (active) | [state][queued][pending][starting][running][completed]   |
 | - Tasks              |                                                         |
 | - Task Detail        | Host Commands  [● RUNNING]                               |
 | - Submit Tasks       | [Start↓] [Graceful Stop] [Force Stop↓] [drain▾] [Shutdown↓] |
-|                      | (disabled+tooltip when precondition not met)            |
+| - Resources          | (disabled+tooltip when precondition not met)            |
 |                      |                                                         |
 |                      | System Resources                                        |
 |                      | CPU / Memory / Disk bars                                |
 |                      |                                                         |
 |                      | Recent Task Changes                                     |
 |                      | (empty state when no tasks: guidance to Submit Tasks)   |
-|                      | task_id | status | started_at | ended_at | exit_code     |
+|                      | task_id | status | resource | started_at | ended_at      |
 |                      |                                                         |
 |                      | Command History (last 20)                               |
 |                      | time | command | accepted | reason_code | message        |
@@ -223,11 +253,13 @@ UX principles applied:
 | Filters: [status dropdown] [task_id search] [only failed]                      |
 | Actions: [Rerun Selected]                                                      |
 +--------------------------------------------------------------------------------+
-| Select | task_id | status | pid | started_at | ended_at | exit_code | detail  |
-| [ ]    | demo-1  | failed | 123 | ...        | ...      | 1         | [open]  |
-| [ ]    | demo-2  | running| 345 | ...        | -        | -         | [open] [Abort] |
+| Select | task_id | resource | priority | status  | pid | started_at | detail  |
+| [ ]    | demo-1  | machine-A| 1        | failed  | 123 | ...        | [open]  |
+| [ ]    | demo-2  | machine-B| 2        | running | 345 | ...        | [open] [Abort] |
+| [ ]    | demo-3  | machine-A| 3        | pending | -   | -          | [open] [Abort] |
 +--------------------------------------------------------------------------------+
 ```
+(pending row shows `blocked_by` value in a tooltip or inline badge)
 
 ### 10.3 Task Detail + Logs
 
@@ -285,6 +317,24 @@ UX principles applied:
 ```
 
 _(Control Panel page removed; all host commands consolidated into Dashboard.)_
+
+### 10.5 Resources
+
+```text
++--------------------------------------------------------------------------------+
+| Resources                                        [Load Resources File]         |
+| (Load Resources button enabled only when host_state=NOT_RUN and not loaded)   |
++--------------------------------------------------------------------------------+
+| JSON Editor (visible only before load; pre-filled with schema hint)            |
+| { "resources": ["machine-A", "machine-B"] }                                   |
+| [Submit Resource List]                                                         |
++--------------------------------------------------------------------------------+
+| Resource Status (polled every 1s when tab is active)                           |
+| resource   | status   | held_by   | pending_tasks          |                  |
+| machine-A  | occupied | demo-1    | demo-3 (priority=3)    |                  |
+| machine-B  | free     | -         | -                      |                  |
++--------------------------------------------------------------------------------+
+```
 
 ## 11. Polling and Refresh Plan
 

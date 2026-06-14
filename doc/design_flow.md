@@ -27,6 +27,7 @@
 17. [Entry 17 - Web GUI UX Conventions Established](#entry-17)
 18. [Entry 18 - Host Commands Consolidated into Dashboard](#entry-18)
 19. [Entry 19 - Per-Task User Abort Requirement Added](#entry-19)
+20. [Entry 20 - Remote Resource Conflict Detection Requirement](#entry-20)
 ## Change Log Rules
 
 Each entry uses:
@@ -298,6 +299,37 @@ Each entry uses:
     - A new endpoint `POST /tasks/{id}/abort` is added to the control surface.
     - `abort_task` is added to the control command enumeration in all API and design documents.
     - New reason codes `task_not_found` and `task_not_running` are added to the reason code dictionary.
+
+## Entry 20
+
+- Change summary: Added remote resource conflict detection with pending admission state, task priority, and resource registry.
+- Entry type: Requirement Change
+- Original design -> New design:
+  - Original: All tasks competed only for host concurrency slots; no concept of remote machine resources; tasks started as soon as slots were available.
+  - New:
+    - Each task now has two mandatory attributes: `resource` (remote machine identifier) and `priority` (positive integer, lower = higher priority).
+    - Resources must be pre-registered via `--resources-file` CLI argument or `POST /resources` API before tasks can be submitted; the registry is immutable after loading.
+    - A new `pending` task state is introduced: tasks whose required resource is already occupied by a `starting` or `running` task enter `pending` instead of `starting`.
+    - Resource lock is written when a task enters `starting` (not `running`) to prevent same-tick double-admission to one resource.
+    - When a task reaches any terminal state (`succeeded`/`failed`/`aborted`), its resource lock is released and the single highest-priority pending task for that resource is promoted back to `queued`.
+    - Priority governs global scheduling queue order (ascending; lower number first) using stable sort by `created_at` as tie-breaker.
+    - `rerun` tasks are appended to the queue tail (sorted among themselves), not inserted by priority to avoid jumping the queue.
+    - `pending -> queued` promotions use the original `created_at` as the stable sort key.
+    - `force_stop` now also aborts `pending` tasks (same as `starting`); `queued` tasks are preserved.
+    - `abort_task` (per-task) now accepts `pending` tasks in addition to `running` tasks.
+    - `replace` submit mode now rejects when `pending` tasks exist, in addition to `starting`/`running`.
+    - `GET /resources` exposes resource occupancy and per-resource pending queue.
+    - `POST /resources` is the runtime API to load the resource registry (accepted only when host is `NOT_RUN` and resources not yet loaded).
+    - A new Resources page is added to the Web GUI (independent tab).
+    - Dashboard Summary Cards add a `pending_count` card.
+    - Task model adds `resource`, `priority`, and `blocked_by` fields.
+    - `abort_task` reason code `task_not_running` is replaced by `task_not_abortable` (covers both running and pending eligibility).
+    - New reason codes: `missing_resource_field`, `resource_not_registered`, `missing_priority_field`, `invalid_priority`, `invalid_host_state`, `already_loaded`, `empty_resources`.
+- Why improved:
+  - Enforces single-occupancy of remote machines, preventing conflicting parallel task execution on the same machine.
+  - Priority-based scheduling gives operators fine-grained control over which tasks run first without manual reordering.
+  - `pending` state provides full observability of the wait reason (`blocked_by`), enabling informed operator decisions.
+  - Resource registry validation at load time prevents misconfiguration from causing silent scheduling failures.
     - Clicking the Abort button in either the Tasks list or the Task Detail view opens a browser `confirm` dialog before dispatching the API call; cancelling discards the action with no server request.
 - Why improved:
   - Enables targeted interruption without collateral impact on concurrent tasks.

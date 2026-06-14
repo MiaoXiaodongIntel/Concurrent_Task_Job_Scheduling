@@ -319,6 +319,7 @@ textarea {
 }
 
 .badge.queued { background: #6f7f7b; }
+.badge.pending { background: #ac6a12; }
 .badge.starting { background: #5a91a8; }
 .badge.running { background: #157a6e; }
 .badge.succeeded { background: #3f8f53; }

@@ -13,27 +13,29 @@ TaskManager is the source of truth for task lifecycle and host runtime counters.
 Task states:
 
 1. `queued`
-2. `starting`
-3. `running`
-4. `succeeded`
-5. `failed`
-6. `aborted`
+2. `pending`
+3. `starting`
+4. `running`
+5. `succeeded`
+6. `failed`
+7. `aborted`
 
 State semantics:
 
-1. `queued`: task is eligible for future admission and has not been bound to a live process in the current attempt.
-2. `starting`: task has been admitted and startup has begun (script/materialization/spawn phase), but stable running execution has not been confirmed yet.
-3. `running`: task process is alive and task output can be observed.
-4. `succeeded`: task finished with success exit code in the latest attempt.
-5. `failed`: task finished with non-zero exit code or spawn failure in the latest attempt.
-6. `aborted`: task was interrupted by manual force-stop policy or by a per-task user abort.
+1. `queued`: task is eligible for immediate scheduling consideration in the next tick.
+2. `pending`: task has been evaluated by the scheduler but its required remote resource is currently held by another `starting` or `running` task; it waits for the resource to be released.
+3. `starting`: task has been admitted and the resource lock is held; startup has begun (script materialization/spawn phase), but stable running execution has not been confirmed yet.
+4. `running`: task process is alive and task output can be observed.
+5. `succeeded`: task finished with success exit code in the latest attempt.
+6. `failed`: task finished with non-zero exit code or spawn failure in the latest attempt.
+7. `aborted`: task was interrupted by manual force-stop policy, per-task user abort, or force-stop from `pending` state.
 
 Terminal states:
 
 1. `succeeded`
 2. `failed`
 
-Note: `aborted` is not a terminal state; aborted tasks may be rerun.
+Note: `aborted` is not a terminal state; aborted tasks may be rerun. `pending` is not a terminal state; pending tasks are eligible for promotion to `queued` when their resource is released.
 
 ### 2.1 Transition Sources and Ownership
 
@@ -42,10 +44,13 @@ TaskManager is the only state-commit authority. It applies transitions from two 
 1. Automatic events:
 	- scheduler admission and runner completion
 	- admission condition: host must be in `RUNNING` state for `queued -> starting` to trigger
+	- resource conflict: scheduler signals `to_pending`; TaskManager commits `queued -> pending`
+	- resource release: when any task reaches a terminal state, TaskManager promotes the highest-priority pending task for that resource back to `queued`
 	- example: `running -> succeeded|failed` based on process exit code
 2. Manual events:
 	- stop/abort commands coordinated by ControlPlane
 	- example: `running -> aborted` when forced stop policy applies or when per-task user abort is requested
+	- example: `pending -> aborted` when force_stop or per-task abort_task is issued against a pending task
 3. Rerun events:
 	- user rerun command coordinated by ControlPlane
 	- example: `succeeded|failed|aborted -> queued`
@@ -56,13 +61,33 @@ Both sources must go through the same transition validator to keep lifecycle con
 
 Baseline transitions:
 
-1. `queued -> starting` (condition: host in `RUNNING` state)
-2. `starting -> running|failed`
-3. `running -> succeeded|failed`
-4. `running -> aborted` (force-stop path)
-5. `succeeded|failed|aborted -> queued` (rerun path)
-6. `starting -> aborted` (force-stop path)
-7. `running -> aborted` (per-task user abort path)
+1. `queued -> starting` (condition: host in `RUNNING` state, resource is free)
+2. `queued -> pending` (condition: host in `RUNNING` state, resource is occupied)
+3. `pending -> queued` (automatic: resource released, this task promoted as highest-priority waiter)
+4. `pending -> aborted` (force-stop path or per-task abort_task path)
+5. `starting -> running|failed`
+6. `running -> succeeded|failed`
+7. `running -> aborted` (force-stop path)
+8. `succeeded|failed|aborted -> queued` (rerun path)
+9. `starting -> aborted` (force-stop path)
+10. `running -> aborted` (per-task user abort path)
+
+### 2.3 Queue Ordering and Priority
+
+1. Each task has a mandatory `priority: int` field (positive integer; lower value = higher priority).
+2. Each task has a mandatory `resource: str` field (remote machine identifier, case-sensitive, must match a registered resource).
+3. The internal queue is maintained in sorted order: ascending by `(priority, created_at)`.
+4. Initial load and `append` submissions insert tasks at the correct position by (priority, created_at) — stable sort.
+5. `rerun` appends tasks to the tail of the queue, sorted among themselves by (priority, created_at) — they do not jump ahead of waiting queued tasks.
+6. `pending -> queued` promotions re-insert at the correct position by original `created_at` — the task retains its natural position relative to other tasks with the same priority.
+
+### 2.4 Resource Lock Protocol
+
+1. Resource lock is written when a task enters `starting` — not when it enters `running`. This ensures the Scheduler sees the lock in the same tick and prevents a second task from being admitted to the same resource.
+2. Resource lock is released when a task enters any terminal state (`succeeded`, `failed`, `aborted`) or when force-stop clears the lock table.
+3. After resource release, TaskManager selects the single highest-priority pending task for that resource and promotes it to `queued`. If multiple pending tasks share the minimum priority, one is chosen randomly.
+4. Lock table: `resource_lock: dict[str, str]` mapping `resource_id -> task_id`.
+5. Pending index: `pending_by_resource: dict[str, list[str]]` mapping `resource_id -> [task_id, ...]` sorted by (priority, created_at).
 
 ## 3. Host Lifecycle Model
 
@@ -97,13 +122,16 @@ Host transition policy:
 
 TaskManager owns:
 
-1. full `TaskJob` snapshots
-2. queue/running/completed counters
+1. full `TaskJob` snapshots (including `resource`, `priority`, `blocked_by` fields)
+2. queue/pending/running/completed counters
 3. task-to-process mapping for active jobs
 4. runtime timestamps for status and output activity
 5. per-task log file path
-6. runtime task submission acceptance (`append|replace`) with validation constraints
+6. runtime task submission acceptance (`append|replace`, replace rejected when in-flight or pending tasks exist)
 7. shutdown progression metadata (mode/timeout escalation state)
+8. resource registry: `registered_resources: list[str]` (loaded once from config, immutable after loading)
+9. resource lock table: `resource_lock: dict[str, str]` (resource_id → holding task_id)
+10. pending index: `pending_by_resource: dict[str, list[str]]` (resource_id → sorted pending task_ids)
 
 ## 5. Interface to Other Modules
 
@@ -140,9 +168,10 @@ Outbound views:
 1. Requirement 2.4 (lifecycle governance): owned here as state model + transition invariants.
 2. Requirement 2.5 (automatic progression): consumed from Scheduler/Runner events and committed here.
 3. Requirement 2.6 (manual intervention): executed via ControlPlane commands and committed here.
-4. Requirement extension (rerun): `succeeded|failed` tasks can re-enter queue by command.
-5. Requirement extension (resident execution): execution round completion transitions host to `IDLE` without process exit.
+4. Requirement extension (rerun): `succeeded|failed|aborted` tasks can re-enter queue by command.
+5. Requirement extension (resident execution): execution round completion transitions host to `NOT_RUN` without process exit.
 6. Requirement extension (runtime task-list submission): new task payloads can be accepted through control surface while host stays alive.
+7. Requirement extension (remote resource conflict): tasks declare a `resource` and `priority`; resource lock table enforces single-occupancy per resource; pending state holds conflicting tasks until resource is free.
 
 Related docs:
 

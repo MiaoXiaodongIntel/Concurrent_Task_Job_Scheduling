@@ -2,6 +2,8 @@
   "tasks": [
     {
       "task_id": "demo-1",
+      "resource": "machine-A",
+      "priority": 1,
       "commands": [
         "Write-Host 'task1 start'; Start-Sleep -Seconds 1",
         "Write-Host 'task1 done'"
@@ -9,6 +11,8 @@
     },
     {
       "task_id": "demo-2",
+      "resource": "machine-B",
+      "priority": 2,
       "commands": [
         "Write-Host 'task2 start'; Start-Sleep -Seconds 2",
         "Write-Host 'task2 done'"
@@ -16,6 +20,8 @@
     },
     {
       "task_id": "demo-3",
+      "resource": "machine-A",
+      "priority": 3,
       "commands": [
         "Write-Host 'task3 start'; Start-Sleep -Seconds 1",
         "Write-Host 'task3 done'"

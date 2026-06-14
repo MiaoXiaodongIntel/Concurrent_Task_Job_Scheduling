@@ -2,6 +2,8 @@
   "tasks": [
     {
       "task_id": "single-1",
+      "resource": "machine-A",
+      "priority": 1,
       "commands": [
         "Write-Host 'single-1 start'",
         "Write-Host 'single-1 done'"

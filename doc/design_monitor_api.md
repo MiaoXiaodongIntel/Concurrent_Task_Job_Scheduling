@@ -20,6 +20,7 @@ MonitorAPI is the primary control surface for GUI integration; stdin command con
 2. `GET /tasks`
 3. `GET /tasks/{id}`
 4. `GET /tasks/{id}/logs?cursor=...`
+5. `GET /resources`
 
 Transport contract:
 
@@ -35,6 +36,7 @@ Transport contract:
 5. `POST /control/shutdown`
 6. `POST /tasks/submit`
 7. `POST /tasks/{id}/abort`
+8. `POST /resources`
 
 Control endpoints are intent APIs, not direct state mutation APIs. Final task status changes are committed by TaskManager.
 
@@ -48,26 +50,39 @@ Control endpoints are intent APIs, not direct state mutation APIs. Final task st
 
 Host-level fields:
 
-1. `host_state` (`NOT_RUN|RUNNING|DRAINING|STOPPING_FORCE|IDLE|SHUTTING_DOWN`)
+1. `host_state` (`NOT_RUN|RUNNING|DRAINING|STOPPING_FORCE|SHUTTING_DOWN`)
 2. `queued_count`
-3. `starting_count`
-4. `running_count`
-5. `completed_count`
-6. `total_count`
-7. `last_status_ts`
+3. `pending_count`
+4. `starting_count`
+5. `running_count`
+6. `completed_count`
+7. `total_count`
+8. `last_status_ts`
 
 Task-level fields:
 
 1. `task_id`
-2. `status` (`queued|starting|running|succeeded|failed|aborted`)
-3. `pid`
-4. `created_at`
-5. `started_at`
-6. `ended_at`
-7. `exit_code`
-8. `abort_reason`
-9. `last_output_ts`
-10. `log_path`
+2. `resource`
+3. `priority`
+4. `status` (`queued|pending|starting|running|succeeded|failed|aborted`)
+5. `blocked_by` (task_id of the task holding the resource when `status=pending`, otherwise null)
+6. `pid`
+7. `created_at`
+8. `started_at`
+9. `ended_at`
+10. `exit_code`
+11. `abort_reason`
+12. `last_output_ts`
+13. `log_path`
+
+Resource-level fields (`GET /resources`):
+
+1. `loaded` (boolean — whether resources have been registered)
+2. `resources` (list of resource objects):
+   - `resource`: string identifier
+   - `status`: `"occupied"` or `"free"`
+   - `held_by`: task_id of the holding task, or null
+   - `pending_tasks`: list of task_ids waiting for this resource (sorted by priority ascending, stable by created_at)
 
 ### 4.2 Endpoint-to-Requirement Mapping
 
@@ -87,11 +102,13 @@ Requirement 2.6 (manual lifecycle intervention):
 1. `POST /control/start` submits start/resume intent.
 2. `POST /control/graceful-stop` submits drain intent.
 3. `POST /control/force-stop` submits forced termination intent.
-4. `POST /control/rerun` submits rerun intent for `succeeded|failed -> queued`.
+4. `POST /control/rerun` submits rerun intent for `succeeded|failed|aborted -> queued`.
 5. `POST /tasks/submit` submits runtime task-list append/replace intent.
 6. `POST /control/shutdown` submits host process shutdown intent (`drain` default).
 7. `GET /health` and `GET /tasks` expose intervention effects (for example reduced admissions, `aborted` tasks, and `abort_reason`).
-8. `POST /tasks/{id}/abort` submits per-task abort intent for a single `running` task.
+8. `POST /tasks/{id}/abort` submits per-task abort intent for a single `running` or `pending` task.
+9. `POST /resources` submits the resource registry (accepted only when host is `NOT_RUN` and resources not yet loaded).
+10. `GET /resources` exposes current resource occupancy and pending-task queues per resource.
 
 ### 4.3 Control Command Response Contract
 

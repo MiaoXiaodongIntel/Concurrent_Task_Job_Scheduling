@@ -1,6 +1,7 @@
 const state = {
   health: null,
   tasks: [],
+  resources: null,
   activeView: "dashboardView",
   selectedTaskIds: new Set(),
   detailTaskId: "",
@@ -8,6 +9,7 @@ const state = {
   logLines: [],
   commandHistory: [],
   lastRefreshAt: null,
+  resourcesPollInterval: null,
 };
 
 const POLL_HEALTH_MS = 1000;
@@ -113,10 +115,10 @@ function renderSummaryCards() {
   const model = [
     ["host_state", hostState],
     ["queued", h.queued_count ?? "-"],
+    ["pending", h.pending_count ?? "-"],
     ["starting", h.starting_count ?? "-"],
     ["running", h.running_count ?? "-"],
     ["completed", h.completed_count ?? "-"],
-    ["total", h.total_count ?? "-"],
   ];
 
   cards.innerHTML = model
@@ -174,6 +176,7 @@ function renderRecentTasks() {
       (task) => `
       <tr>
         <td>${task.task_id}</td>
+        <td>${formatValue(task.resource)}</td>
         <td><span class="badge ${task.status}">${task.status}</span></td>
         <td>${formatValue(task.started_at)}</td>
         <td>${formatValue(task.ended_at)}</td>
@@ -210,18 +213,22 @@ function renderTaskTable() {
   tbody.innerHTML = list
     .map((task) => {
       const checked = state.selectedTaskIds.has(task.task_id) ? "checked" : "";
+      const canAbort = task.status === 'running' || task.status === 'pending';
+      const blockedTip = task.blocked_by ? ` title="blocked by: ${task.blocked_by}"` : '';
       return `
         <tr>
           <td><input type="checkbox" data-select-task="${task.task_id}" ${checked} /></td>
           <td>${task.task_id}</td>
-          <td><span class="badge ${task.status}">${task.status}</span></td>
+          <td>${formatValue(task.resource)}</td>
+          <td>${formatValue(task.priority)}</td>
+          <td><span class="badge ${task.status}"${blockedTip}>${task.status}${task.blocked_by ? ' ⏳' : ''}</span></td>
           <td>${formatValue(task.pid)}</td>
           <td>${formatValue(task.started_at)}</td>
           <td>${formatValue(task.ended_at)}</td>
           <td>${formatValue(task.exit_code)}</td>
           <td>
             <button class="btn btn-secondary" data-open-task="${task.task_id}">Open</button>
-            ${task.status === 'running' ? `<button class="btn danger" data-abort-task="${task.task_id}" style="margin-left:4px">Abort</button>` : ''}
+            ${canAbort ? `<button class="btn danger" data-abort-task="${task.task_id}" style="margin-left:4px">Abort</button>` : ''}
           </td>
         </tr>`;
     })
@@ -258,18 +265,21 @@ function renderTaskDetail() {
     return;
   }
 
-  const isRunning = task.status === 'running';
+  const canAbort = task.status === 'running' || task.status === 'pending';
+  const abortTitle = canAbort ? 'Abort this task' : 'Task is not running or pending';
   panel.innerHTML = `
     <h3>${task.task_id}</h3>
     <p><strong>status:</strong> ${task.status} <strong>pid:</strong> ${formatValue(task.pid)} <strong>exit_code:</strong> ${formatValue(task.exit_code)}</p>
+    <p><strong>resource:</strong> ${formatValue(task.resource)} &nbsp; <strong>priority:</strong> ${formatValue(task.priority)}</p>
+    <p><strong>blocked_by:</strong> ${formatValue(task.blocked_by)}</p>
     <p><strong>created_at:</strong> ${formatValue(task.created_at)}</p>
     <p><strong>started_at:</strong> ${formatValue(task.started_at)} <strong>ended_at:</strong> ${formatValue(task.ended_at)}</p>
     <p><strong>abort_reason:</strong> ${formatValue(task.abort_reason)}</p>
     <p><strong>log_path:</strong> ${formatValue(task.log_path)}</p>
     <div class="actions" style="margin-top:8px">
       <button class="btn danger" data-abort-task="${task.task_id}"
-        ${isRunning ? '' : 'disabled'}
-        title="${isRunning ? 'Abort this running task' : 'Task is not running'}">Abort</button>
+        ${canAbort ? '' : 'disabled'}
+        title="${abortTitle}">Abort</button>
     </div>
   `;
 }
@@ -294,6 +304,8 @@ function renderCommandHistory() {
 }
 
 function switchView(viewId) {
+  const enteringResources = viewId === "resourcesView" && state.activeView !== "resourcesView";
+  const leavingResources = state.activeView === "resourcesView" && viewId !== "resourcesView";
   state.activeView = viewId;
   document.querySelectorAll(".view").forEach((section) => {
     section.classList.toggle("hidden", section.id !== viewId);
@@ -301,6 +313,16 @@ function switchView(viewId) {
   document.querySelectorAll(".nav-link").forEach((button) => {
     button.classList.toggle("active", button.dataset.view === viewId);
   });
+  if (enteringResources) {
+    refreshResources().catch(() => {});
+    state.resourcesPollInterval = setInterval(() => {
+      refreshResources().catch(() => {});
+    }, 1000);
+  }
+  if (leavingResources && state.resourcesPollInterval) {
+    clearInterval(state.resourcesPollInterval);
+    state.resourcesPollInterval = null;
+  }
 }
 
 async function refreshHealth() {
@@ -317,6 +339,39 @@ async function refreshTasks() {
   renderRecentTasks();
   renderTaskTable();
   renderTaskDetail();
+}
+
+async function refreshResources() {
+  const data = await requestJson("/resources");
+  state.resources = data;
+  renderResourcesPage();
+}
+
+function renderResourcesPage() {
+  const data = state.resources;
+  const hostState = state.health?.host_state || "";
+  const loadPanel = byId("resourcesLoadPanel");
+  const statusPanel = byId("resourcesStatusPanel");
+  const canLoad = hostState === "NOT_RUN" && !(data && data.loaded);
+  if (loadPanel) loadPanel.classList.toggle("hidden", !canLoad);
+  if (!data || !data.loaded) {
+    if (statusPanel) statusPanel.classList.toggle("hidden", true);
+    return;
+  }
+  if (statusPanel) statusPanel.classList.toggle("hidden", false);
+  const tbody = byId("resourcesTableTbody");
+  if (!tbody) return;
+  const resources = data.resources || [];
+  tbody.innerHTML = resources.map((r) => {
+    const badgeClass = r.status === "occupied" ? "running" : "queued";
+    const pendingList = (r.pending_tasks || []).join(", ") || "-";
+    return `<tr>
+      <td>${r.resource}</td>
+      <td><span class="badge ${badgeClass}">${r.status}</span></td>
+      <td>${r.held_by || "-"}</td>
+      <td>${pendingList}</td>
+    </tr>`;
+  }).join("");
 }
 
 async function refreshTaskLogs() {
@@ -578,6 +633,47 @@ function bindEvents() {
       showAlert(`Submit failed: ${err.message}`, "error");
     }
   });
+
+  byId("loadResourceFileBtn").addEventListener("click", () => {
+    byId("resourceFileInput").click();
+  });
+
+  byId("resourceFileInput").addEventListener("change", (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const parsed = JSON.parse(e.target.result);
+        byId("resourcesJsonEditor").value = JSON.stringify(parsed, null, 2);
+        byId("resourcesResult").textContent = `Loaded: ${file.name} (${file.size} bytes)`;
+        showAlert(`Loaded ${file.name}`);
+      } catch (err) {
+        byId("resourcesResult").textContent = `Failed to parse file: ${err.message}`;
+        showAlert(`Failed to parse file: ${err.message}`, "error");
+      }
+      event.target.value = "";
+    };
+    reader.readAsText(file);
+  });
+
+  byId("submitResourceListBtn").addEventListener("click", async () => {
+    try {
+      const raw = byId("resourcesJsonEditor").value;
+      const parsed = JSON.parse(raw);
+      if (!parsed || !Array.isArray(parsed.resources)) {
+        throw new Error("payload must be an object with a resources array");
+      }
+      const result = await postJson("/resources", { resources: parsed.resources });
+      byId("resourcesResult").textContent = JSON.stringify(result, null, 2);
+      pushHistory(result);
+      await refreshResources();
+      showAlert(`load_resources: ${result.message} (${result.reason_code})`, result.accepted ? "success" : "error");
+    } catch (err) {
+      byId("resourcesResult").textContent = `Submit failed: ${err.message}`;
+      showAlert(`Submit failed: ${err.message}`, "error");
+    }
+  });
 }
 
 function preloadSubmitTemplate() {
@@ -585,6 +681,8 @@ function preloadSubmitTemplate() {
     tasks: [
       {
         task_id: "demo-ui-1",
+        resource: "machine-A",
+        priority: 1,
         commands: [
           "Write-Host 'demo-ui-1 start'; Start-Sleep -Seconds 1",
           "Write-Host 'demo-ui-1 done'",
@@ -592,6 +690,8 @@ function preloadSubmitTemplate() {
       },
       {
         task_id: "demo-ui-2",
+        resource: "machine-B",
+        priority: 2,
         commands: [
           "Write-Host 'demo-ui-2 start'; Start-Sleep -Seconds 2",
           "Write-Host 'demo-ui-2 done'",
@@ -611,6 +711,7 @@ async function bootstrap() {
   renderTaskTable();
   renderTaskDetail();
   renderCommandHistory();
+  renderResourcesPage();
 
   try {
     await Promise.all([refreshHealth(), refreshTasks()]);

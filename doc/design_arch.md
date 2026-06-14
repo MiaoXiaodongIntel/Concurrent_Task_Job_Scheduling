@@ -27,6 +27,7 @@ The project provides the following core capabilities:
 9. Resident host mode: host process stays alive after one execution round and enters idle state for later resume.
 10. Runtime task-list submission: users can submit new task lists through API without restarting the host process.
 11. Unified shutdown operation: GUI/CLI/test scripts can request process shutdown through one control interface.
+12. Remote resource conflict detection: each task declares a required remote machine resource and a scheduling priority; tasks whose resource is already occupied are held in `pending` state until the resource is released, then the highest-priority waiting task is promoted back to the scheduling queue.
 
 ## 3. High-Level Component View
 
@@ -49,8 +50,10 @@ The project provides the following core capabilities:
    - Responsibilities:
       - Owns task metadata and lifecycle state transitions.
       - Commits both automatic and manual transition results under one validation model.
-      - Owns task requeue semantics for rerun (`succeeded|failed -> queued`).
-      - Tracks queue/running/completed progress and task snapshots.
+      - Owns task requeue semantics for rerun (`succeeded|failed|aborted -> queued`).
+      - Tracks queue/pending/running/completed progress and task snapshots.
+      - Owns the resource registry (registered remote machines) and resource lock table.
+      - Manages `pending` state: tasks blocked on occupied resources wait here until the resource is released.
    - Details: [design_task_manager.md](design_task_manager.md)
    - Implementation: [../task_manager.py](../task_manager.py)
 - Scheduler
@@ -58,6 +61,7 @@ The project provides the following core capabilities:
       - Chooses when and how many queued jobs to start.
       - Produces admission decisions only, without directly mutating terminal states.
    - Applies concurrency and host-resource admission rules (CPU/memory thresholds + disk active-time threshold).
+   - Applies per-task remote resource conflict detection: tasks whose resource is occupied are returned as `to_pending` candidates instead of `to_start`.
    - Details: [design_scheduler.md](design_scheduler.md)
    - Implementation: [../scheduler.py](../scheduler.py)
 - ControlPlane
@@ -103,8 +107,11 @@ The project provides the following core capabilities:
 8. Runtime task submission and shutdown control:
    - Doc: [design_control_plane.md](design_control_plane.md), [design_monitor_api.md](design_monitor_api.md)
    - Code: [../task_manager.py](../task_manager.py), [../monitor_api.py](../monitor_api.py)
+9. Remote resource registry and conflict detection:
+   - Doc: [design_task_manager.md](design_task_manager.md), [design_scheduler.md](design_scheduler.md)
+   - Code: [../task_manager.py](../task_manager.py), [../scheduler.py](../scheduler.py)
 
 
 ---
 
-Last updated: 2026-06-12
+Last updated: 2026-06-14

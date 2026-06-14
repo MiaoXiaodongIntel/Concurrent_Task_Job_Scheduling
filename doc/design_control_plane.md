@@ -17,6 +17,7 @@ It is the owner of manual lifecycle intervention semantics (requirement 2.6), wh
 5. `submit_tasks`
 6. `shutdown`
 7. `abort_task`
+8. `load_resources`
 
 ## 3. Behavior Contract
 
@@ -31,42 +32,51 @@ It is the owner of manual lifecycle intervention semantics (requirement 2.6), wh
 1. Transition host state to `DRAINING`.
 2. Stop admitting new tasks.
 3. Wait for running tasks to finish.
-4. Transition host state to `IDLE`.
-5. Keep all not-yet-admitted tasks in `queued` state.
+4. When all in-flight tasks (`starting` and `running`) reach zero, batch-convert all `pending` tasks to `queued` (they will be scheduled in the next `start` round).
+5. Transition host state to `NOT_RUN`.
+6. Keep all not-yet-admitted tasks in `queued` state.
 
 Lifecycle intent:
 
 1. Preserve in-flight tasks whenever possible.
 2. Prevent new automatic admissions during drain.
+3. Do not lose pending tasks: they are recovered to `queued` before entering `NOT_RUN`.
 
 ### 3.2 Force Stop
 
 1. If host is `RUNNING` or `DRAINING`, transition host state to `STOPPING_FORCE` immediately.
 2. Keep queued tasks in `queued` state for future resume.
-3. Terminate running task processes.
-4. Mark terminated tasks as `aborted`.
-5. Mark tasks currently in `starting` as `aborted` when startup cannot complete due to force-stop.
-6. Transition host state to `IDLE`.
+3. Mark tasks currently in `pending` as `aborted` with `abort_reason = "force_stop"` and clear `blocked_by`.
+4. Terminate running task processes.
+5. Mark terminated tasks as `aborted`.
+6. Mark tasks currently in `starting` as `aborted` when startup cannot complete due to force-stop.
+7. Clear all resource locks and pending index entries.
+8. Transition host state to `NOT_RUN`.
 
 Lifecycle intent:
 
 1. Enforce human-triggered interruption.
-2. Drive affected tasks to `aborted` through TaskManager transition commit.
+2. Drive affected tasks (`pending`, `starting`, `running`) to `aborted` through TaskManager transition commit.
+3. `pending` tasks are aborted synchronously (no process to terminate); `starting`/`running` tasks require process termination.
 
 ### 3.3 Rerun
 
-1. Accept target task IDs where current status is `succeeded` or `failed`.
-2. Reset selected task attempt metadata as needed by TaskManager policy.
-3. Transition selected tasks back to `queued`.
-4. If host is `RUNNING`, rerun tasks become immediately eligible for admission.
-5. If host is `NOT_RUN` or `IDLE`, rerun tasks remain `queued` until next `start`.
+1. Accept target task IDs where current status is `succeeded`, `failed`, or `aborted`.
+2. Reject task IDs where status is `pending` (task has not run; rerun is not applicable).
+3. Reset selected task attempt metadata as needed by TaskManager policy.
+4. Transition selected tasks back to `queued`, appended to the tail of the queue sorted by (priority, created_at).
+5. If host is `RUNNING`, rerun tasks become immediately eligible for admission in the next tick.
+6. If host is `NOT_RUN`, rerun tasks remain `queued` until next `start`.
 
 ### 3.4 Runtime Task Submission
 
-1. `append` mode appends validated tasks to the existing queue and task set.
-2. `replace` mode replaces the task set only when there is no in-flight task.
-3. If in-flight tasks exist, `replace` must be rejected.
-4. Submitted tasks follow the same validation contract as initial task-file loading.
+1. `append` mode appends validated tasks to the existing queue and task set, inserting each task at the correct position by (priority, created_at).
+2. `replace` mode replaces the task set only when there is no in-flight task and no `pending` task.
+3. If in-flight tasks (`starting` or `running`) or `pending` tasks exist, `replace` must be rejected with `reason_code: inflight_exists`.
+4. Submitted tasks must pass the extended validation contract:
+   - `resource` field is required and must match a registered resource (case-sensitive).
+   - `priority` field is required and must be a positive integer.
+   - All existing validations (unique task_id, non-empty commands) still apply.
 
 ### 3.5 Shutdown
 
@@ -80,15 +90,27 @@ Lifecycle intent:
 
 1. Accept a single `task_id`.
 2. Reject if task does not exist (`task_not_found`).
-3. Reject if task status is not `running` (`task_not_running`).
-4. Terminate the task's subprocess immediately.
-5. Transition task status to `aborted` with `abort_reason = "user_abort"`.
-6. Host state is not changed; other tasks continue unaffected.
+3. Reject if task status is neither `running` nor `pending` (`task_not_abortable`).
+4. If task is `running`: terminate the task's subprocess immediately.
+5. If task is `pending`: remove from `pending_by_resource` index; no process to terminate.
+6. In both cases: transition task status to `aborted` with `abort_reason = "user_abort"`.
+7. Host state is not changed; other tasks continue unaffected.
+8. Resource lock is not held by `pending` tasks, so no lock release is needed for the pending abort path.
 
 Lifecycle intent:
 
-1. Allow targeted interruption of a single in-progress task without affecting host or sibling tasks.
+1. Allow targeted interruption of a single in-progress or waiting task without affecting host or sibling tasks.
 2. Aborted task may be rerun by the user after abort.
+
+### 3.7 Load Resources
+
+1. Accept a list of resource identifiers (non-empty strings).
+2. Reject if host state is not `NOT_RUN` (`reason_code: invalid_host_state`).
+3. Reject if resources have already been loaded (`reason_code: already_loaded`).
+4. Reject if the provided list is empty (`reason_code: empty_resources`).
+5. Deduplicate entries (preserve original order, retain first occurrence).
+6. Store the deduplicated list as the registered resource registry.
+7. Resources are immutable after loading; a second `load_resources` call is always rejected.
 
 ## 4. Interface with Other Modules
 

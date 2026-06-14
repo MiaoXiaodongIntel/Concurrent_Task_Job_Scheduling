@@ -12,7 +12,12 @@ class ResourceUsage:
 
 
 class Scheduler:
-    """Admission controller for queued tasks."""
+    """Admission controller for queued tasks.
+
+    Returns (to_start, to_pending) per tick:
+    - to_start: task IDs admitted to the starting phase (resource is free)
+    - to_pending: task IDs blocked by resource conflict (resource is occupied)
+    """
 
     def __init__(
         self,
@@ -33,9 +38,17 @@ class Scheduler:
         host_running: bool,
         is_runnable: Callable[[str], bool],
         get_resource_usage: Callable[[], ResourceUsage | None] | None = None,
-    ) -> list[str]:
+        get_task_resource: Callable[[str], str] | None = None,
+        is_resource_free: Callable[[str], bool] | None = None,
+    ) -> tuple[list[str], list[str]]:
+        """Return (to_start, to_pending) for the current scheduling tick.
+
+        Queue is expected to be pre-sorted by (priority asc, created_at asc).
+        Resource conflict detection is non-blocking: a pending task does not
+        consume a concurrency slot; the scan continues to the next candidate.
+        """
         if not host_running:
-            return []
+            return [], []
 
         if get_resource_usage is not None:
             usage = get_resource_usage()
@@ -44,18 +57,32 @@ class Scheduler:
                 or usage.memory_percent >= self.max_memory_percent
                 or usage.disk_active_percent >= self.max_disk_active_percent
             ):
-                return []
+                return [], []
 
         available_slots = self.max_concurrency - running_count
         if available_slots <= 0:
-            return []
+            return [], []
 
-        selected: list[str] = []
-        while available_slots > 0 and queue:
+        to_start: list[str] = []
+        to_pending: list[str] = []
+
+        while queue:
             next_id = queue.pop(0)
-            if not is_runnable(next_id):
-                continue
-            selected.append(next_id)
-            available_slots -= 1
 
-        return selected
+            if not is_runnable(next_id):
+                # Non-runnable: skip without consuming a slot or going to pending.
+                continue
+
+            if get_task_resource is not None and is_resource_free is not None:
+                resource = get_task_resource(next_id)
+                if not is_resource_free(resource):
+                    # Resource conflict: send to pending, do NOT consume a slot.
+                    to_pending.append(next_id)
+                    continue
+
+            to_start.append(next_id)
+            available_slots -= 1
+            if available_slots <= 0:
+                break
+
+        return to_start, to_pending

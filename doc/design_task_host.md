@@ -22,24 +22,24 @@ It is responsible for:
 Current arguments:
 
 1. `--tasks-file` (optional)
-2. `--max-concurrency` (default: `2`)
-3. `--max-cpu-percent` (default: `75.0`)
-4. `--max-memory-percent` (default: `75.0`)
-5. `--max-disk-active-percent` (default: `80.0`)
-6. `--scheduler-tick` (default: `0.5`)
-7. `--status-interval` (default: `2.0`)
-8. `--log-dir` (default: `logs`)
-9. `--summary-json` (optional)
-10. `--monitor-host` (default: `127.0.0.1`)
-11. `--monitor-port` (default: `8765`)
-12. `--interactive-cli` (optional, default: `false`)
+2. `--resources-file` (required when `--tasks-file` is provided; omit only when starting with empty task set)
+3. `--max-concurrency` (default: `2`)
+4. `--max-cpu-percent` (default: `75.0`)
+5. `--max-memory-percent` (default: `75.0`)
+6. `--max-disk-active-percent` (default: `80.0`)
+7. `--scheduler-tick` (default: `0.5`)
+8. `--status-interval` (default: `2.0`)
+9. `--log-dir` (default: `logs`)
+10. `--summary-json` (optional)
+11. `--monitor-host` (default: `127.0.0.1`)
+12. `--monitor-port` (default: `8765`)
+13. `--interactive-cli` (optional, default: `false`)
 
-Threshold parameter constraints:
+CLI validation rules:
 
-1. `--max-cpu-percent`, `--max-memory-percent`, and `--max-disk-active-percent` are percentage thresholds.
-2. Effective runtime range is `1.0..100.0` (values are normalized by `Scheduler`).
-3. Max value is fixed at `100.0` because percentage signals cannot exceed 100 in a meaningful way.
-4. For interactive GUI/Web monitoring usage on the same host, recommended defaults are `cpu=75`, `memory=75`, `disk_active_time=80`.
+1. If `--tasks-file` is provided, `--resources-file` must also be provided (fail-fast with exit code `2`).
+2. If `--tasks-file` is omitted, `--resources-file` may also be omitted; resources are loaded later via `POST /resources`.
+3. Threshold parameters are normalized to `1.0..100.0` range by Scheduler.
 
 Startup mode contract:
 
@@ -59,18 +59,42 @@ Each task object requires:
 
 1. `task_id` (optional, auto-generated if missing/empty)
 2. non-empty `commands: list[str]`
+3. `resource: str` — required, must be a non-empty string matching a registered resource (case-sensitive)
+4. `priority: int` — required, must be a positive integer (lower value = higher priority)
 
 Validation guarantees:
 
 1. no duplicate `task_id`
 2. all commands are non-empty strings
-3. at least one task exists
+3. `resource` field present and non-empty
+4. `resource` value exists in the registered resource list (cross-validated after resources are loaded)
+5. `priority` field present and is a positive integer
+6. at least one task exists (when tasks file is provided)
+
+## 3.1 Resources Definition Contract
+
+Accepted resources-file format:
+
+1. object containing `resources` list of non-empty strings
+
+```json
+{ "resources": ["machine-A", "machine-B"] }
+```
+
+Validation guarantees:
+
+1. `resources` is a non-empty list
+2. each entry is a non-empty string
+3. duplicate entries are deduplicated (first occurrence kept)
+4. resource identifiers are case-sensitive
+
+Runtime resource loading via `POST /resources` follows the same schema and validation rules.
 
 Runtime submission contract (via Monitor API):
 
-1. `POST /tasks/submit` payload follows the same task schema (`task_id`, `commands`).
-2. `append` mode appends new tasks.
-3. `replace` mode is rejected when there are in-flight tasks.
+1. `POST /tasks/submit` payload follows the same task schema (`task_id`, `commands`, `resource`, `priority`).
+2. `append` mode appends new tasks inserted at the correct position by (priority, created_at).
+3. `replace` mode is rejected when there are in-flight or `pending` tasks.
 
 ## 4. Runtime Composition Flow
 

@@ -21,7 +21,7 @@ from task_manager import TaskJob, TaskManager, TaskStatus
 from task_runner import TaskRunner
 
 
-def load_tasks(tasks_file: Path) -> list[TaskJob]:
+def load_tasks(tasks_file: Path, registered_resources: set[str] | None = None) -> list[TaskJob]:
     raw = json.loads(tasks_file.read_text(encoding="utf-8"))
 
     task_items: list[dict[str, object]]
@@ -56,11 +56,51 @@ def load_tasks(tasks_file: Path) -> list[TaskJob]:
                 raise ValueError(f"task {task_id} has invalid command: {command!r}")
             commands.append(command)
 
-        tasks.append(TaskJob(task_id=task_id, commands=commands))
+        resource_raw = item.get("resource")
+        if not isinstance(resource_raw, str) or not resource_raw.strip():
+            raise ValueError(f"task {task_id} must have a non-empty 'resource' string field")
+        resource = resource_raw.strip()
+
+        if registered_resources is not None and resource not in registered_resources:
+            raise ValueError(
+                f"task {task_id} references unregistered resource: {resource!r}"
+            )
+
+        priority_raw = item.get("priority")
+        if priority_raw is None:
+            raise ValueError(f"task {task_id} must have a 'priority' integer field")
+        try:
+            priority = int(priority_raw)  # type: ignore[arg-type]
+            if priority < 1:
+                raise ValueError("priority must be positive")
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"task {task_id} 'priority' must be a positive integer: {exc}"
+            ) from exc
+
+        tasks.append(TaskJob(task_id=task_id, commands=commands, resource=resource, priority=priority))
 
     if not tasks:
         raise ValueError("No tasks found in tasks file")
     return tasks
+
+
+def load_resources_file(resources_file: Path) -> list[str]:
+    raw = json.loads(resources_file.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict) or not isinstance(raw.get("resources"), list):
+        raise ValueError("resources file must be an object containing a 'resources' list")
+    resources_raw = raw["resources"]
+    if not resources_raw:
+        raise ValueError("resources list must not be empty")
+    result: list[str] = []
+    seen: set[str] = set()
+    for r in resources_raw:
+        if not isinstance(r, str) or not r.strip():
+            raise ValueError(f"resource entry is not a non-empty string: {r!r}")
+        if r not in seen:
+            seen.add(r)
+            result.append(r)
+    return result
 
 
 def parse_args() -> argparse.Namespace:
@@ -71,6 +111,11 @@ def parse_args() -> argparse.Namespace:
         "--tasks-file",
         default="",
         help="Optional path to JSON task definition file. If omitted, host starts with empty tasks and waits for submit.",
+    )
+    parser.add_argument(
+        "--resources-file",
+        default="",
+        help="Path to JSON resource definition file. Required when --tasks-file is provided.",
     )
     parser.add_argument(
         "--max-concurrency",
@@ -180,6 +225,7 @@ def build_summary(manager: TaskManager) -> dict[str, object]:
     return {
         "host_state": manager.host_state.value,
         "queue_size": sum(1 for t in manager.tasks.values() if t.status == TaskStatus.QUEUED),
+        "pending_count": sum(1 for t in manager.tasks.values() if t.status == TaskStatus.PENDING),
         "starting_count": sum(1 for t in manager.tasks.values() if t.status == TaskStatus.STARTING),
         "running_count": sum(1 for t in manager.tasks.values() if t.status == TaskStatus.RUNNING),
         "completed_count": sum(
@@ -196,11 +242,25 @@ def main() -> int:
 
     log_dir = Path(args.log_dir).resolve()
 
+    registered_resources: list[str] = []
     tasks: list[TaskJob] = []
+
+    if args.tasks_file and not args.resources_file:
+        print("Error: --resources-file is required when --tasks-file is provided.", file=sys.stderr)
+        return 2
+
+    if args.resources_file:
+        resources_file = Path(args.resources_file).resolve()
+        try:
+            registered_resources = load_resources_file(resources_file)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            print(f"Failed to load resources file: {exc}", file=sys.stderr)
+            return 2
+
     if args.tasks_file:
         tasks_file = Path(args.tasks_file).resolve()
         try:
-            tasks = load_tasks(tasks_file)
+            tasks = load_tasks(tasks_file, registered_resources=set(registered_resources))
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             print(f"Failed to load tasks file: {exc}", file=sys.stderr)
             return 2
@@ -219,6 +279,7 @@ def main() -> int:
         log_dir=log_dir,
         scheduler_tick=args.scheduler_tick,
         status_interval=args.status_interval,
+        registered_resources=registered_resources if registered_resources else None,
     )
 
     monitor = MonitorServer(manager=manager, host=args.monitor_host, port=args.monitor_port)
