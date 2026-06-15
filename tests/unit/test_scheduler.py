@@ -159,3 +159,71 @@ def test_resource_threshold_exceeded_suspends_all():
     assert to_start == []
     assert to_pending == []
 
+
+def test_same_resource_two_tasks_same_tick_lock_empty():
+    """Two tasks sharing the same resource, resource lock empty (no task yet running).
+
+    Before the fix, pick_next_tasks saw the resource as free for both candidates
+    in one tick and returned both in to_start, causing double-admission onto the
+    same machine.  After the fix, claimed_in_tick tracks in-tick claims, so only
+    the first task is admitted and the second goes to to_pending.
+    """
+    sched = _make_scheduler(max_concurrency=4)
+    queue = ["tc1-m2201", "tc2-m2201"]
+    resource_map = {"tc1-m2201": "m2201", "tc2-m2201": "m2201"}
+    # is_resource_free returns True for everything — simulates an empty _resource_lock
+    to_start, to_pending = sched.pick_next_tasks(
+        queue=queue,
+        running_count=0,
+        host_running=True,
+        is_runnable=_always_runnable,
+        get_resource_usage=_no_resources,
+        get_task_resource=lambda t: resource_map[t],
+        is_resource_free=lambda r: True,
+    )
+    assert to_start == ["tc1-m2201"], "only the first task on m2201 should start"
+    assert to_pending == ["tc2-m2201"], "second task on m2201 must be pending, not started"
+
+
+def test_same_resource_three_tasks_same_tick():
+    """Three tasks on the same machine in one tick: only one starts, two go pending."""
+    sched = _make_scheduler(max_concurrency=4)
+    queue = ["t1", "t2", "t3"]
+    to_start, to_pending = sched.pick_next_tasks(
+        queue=queue,
+        running_count=0,
+        host_running=True,
+        is_runnable=_always_runnable,
+        get_resource_usage=_no_resources,
+        get_task_resource=lambda t: "shared-machine",
+        is_resource_free=lambda r: True,
+    )
+    assert to_start == ["t1"]
+    assert to_pending == ["t2", "t3"]
+
+
+def test_same_resource_in_tick_claim_does_not_consume_slot():
+    """In-tick resource claim must not consume a concurrency slot for pending tasks.
+
+    Setup: 2 slots, queue=[t1, t2, t3], t1+t2 share machine-X, t3 has machine-Y.
+    - t1 claims slot + machine-X → to_start (available_slots: 2→1)
+    - t2 conflicts on machine-X (in-tick claim) → to_pending; slot NOT decremented (still 1)
+    - t3 on machine-Y gets the remaining slot → to_start (available_slots: 1→0)
+    If pending consumed a slot, t3 would NOT start. Verifies the non-blocking invariant
+    for in-tick claims (same guarantee as for externally-locked resources).
+    """
+    sched = _make_scheduler(max_concurrency=2)
+    queue = ["t1", "t2", "t3"]
+    resource_map = {"t1": "machine-X", "t2": "machine-X", "t3": "machine-Y"}
+    to_start, to_pending = sched.pick_next_tasks(
+        queue=queue,
+        running_count=0,
+        host_running=True,
+        is_runnable=_always_runnable,
+        get_resource_usage=_no_resources,
+        get_task_resource=lambda t: resource_map[t],
+        is_resource_free=lambda r: True,
+    )
+    assert to_start == ["t1", "t3"]    # t3 gets the slot freed by t2's pending
+    assert to_pending == ["t2"]        # machine-X in-tick conflict → pending, no slot consumed
+

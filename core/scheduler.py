@@ -70,6 +70,11 @@ class Scheduler:
 
         to_start: list[str] = []
         to_pending: list[str] = []
+        # Resources claimed by earlier candidates within THIS tick. The real
+        # resource lock is written by TaskManager only after pick_next_tasks
+        # returns, so we must track in-tick claims here to prevent two tasks
+        # sharing the same resource from both being admitted in one tick.
+        claimed_in_tick: set[str] = set()
 
         while queue:
             next_id = queue.pop(0)
@@ -80,10 +85,11 @@ class Scheduler:
 
             if get_task_resource is not None and is_resource_free is not None:
                 resource = get_task_resource(next_id)
-                if not is_resource_free(resource):
+                if resource in claimed_in_tick or not is_resource_free(resource):
                     # Resource conflict: send to pending, do NOT consume a slot.
                     to_pending.append(next_id)
                     continue
+                claimed_in_tick.add(resource)
 
             to_start.append(next_id)
             if available_slots is not None:

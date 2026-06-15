@@ -1142,7 +1142,15 @@ class TaskManager:
             for task_id in to_pending:
                 task = self.tasks[task_id]
                 self._set_task_status(task, TaskStatus.PENDING)
-                task.blocked_by = self._resource_lock.get(task.resource)
+                # The blocking holder is either an already-locked task or a task
+                # admitted to STARTING in this same tick (lock not yet written).
+                holder = self._resource_lock.get(task.resource)
+                if holder is None:
+                    holder = next(
+                        (sid for sid in to_start if self.tasks[sid].resource == task.resource),
+                        None,
+                    )
+                task.blocked_by = holder
                 self._insert_pending_sorted(task.resource, task_id)
                 print(f"[TASK] {task_id} -> pending (resource={task.resource!r} blocked_by={task.blocked_by!r})")
 
