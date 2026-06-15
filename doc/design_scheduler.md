@@ -28,7 +28,7 @@ Implementation file: [../core/scheduler.py](../core/scheduler.py)
 
 1. If host is not running: return `([], [])`.
 2. If host resource snapshot is available and any host threshold is exceeded (`cpu`, `memory`, `disk_active_time`): return `([], [])` for this tick.
-3. Enforce hard cap `max_concurrency` for `to_start` slots (`available_slots = max_concurrency - running_count`).
+3. Enforce hard cap `max_concurrency` for `to_start` slots (`available_slots = max_concurrency - running_count`). When `max_concurrency` is `None`, no slot cap is applied (`available_slots` is unbounded) and admission is governed solely by the host thresholds in step 2.
 4. Iterate queue in order (queue is pre-sorted by TaskManager in priority order):
    a. Pop next task_id.
    b. Check `is_runnable`: if `False`, skip (do not count against slots, do not pending).
@@ -51,7 +51,7 @@ Key behavioral properties:
 
 ## 6. Configurable Knobs
 
-1. `max_concurrency`
+1. `max_concurrency` (`None` = no concurrency cap; admission limited only by host thresholds)
 2. `max_cpu_percent`
 3. `max_memory_percent`
 4. `max_disk_active_percent`

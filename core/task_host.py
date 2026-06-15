@@ -120,8 +120,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--max-concurrency",
         type=int,
-        default=2,
-        help="Maximum concurrent running task jobs (default: 2)",
+        default=None,
+        help="Maximum concurrent running task jobs. If omitted, no concurrency cap is applied and admission is limited only by the CPU/memory/disk thresholds.",
     )
     parser.add_argument(
         "--max-cpu-percent",

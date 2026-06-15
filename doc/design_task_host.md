@@ -23,7 +23,7 @@ Current arguments:
 
 1. `--tasks-file` (optional)
 2. `--resources-file` (required when `--tasks-file` is provided; omit only when starting with empty task set)
-3. `--max-concurrency` (default: `2`)
+3. `--max-concurrency` (optional; if omitted, no concurrency cap is applied and admission is limited only by the CPU/memory/disk thresholds)
 4. `--max-cpu-percent` (default: `75.0`)
 5. `--max-memory-percent` (default: `75.0`)
 6. `--max-disk-active-percent` (default: `80.0`)
@@ -40,6 +40,7 @@ CLI validation rules:
 1. If `--tasks-file` is provided, `--resources-file` must also be provided (fail-fast with exit code `2`).
 2. If `--tasks-file` is omitted, `--resources-file` may also be omitted; resources are loaded later via `POST /resources`.
 3. Threshold parameters are normalized to `1.0..100.0` range by Scheduler.
+4. `--max-concurrency` has no default; when omitted, the Scheduler applies no concurrency cap and admission is governed solely by the CPU/memory/disk host thresholds.
 
 Startup mode contract:
 

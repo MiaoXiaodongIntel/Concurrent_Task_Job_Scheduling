@@ -21,12 +21,12 @@ class Scheduler:
 
     def __init__(
         self,
-        max_concurrency: int,
+        max_concurrency: int | None,
         max_cpu_percent: float = 75.0,
         max_memory_percent: float = 75.0,
         max_disk_active_percent: float = 80.0,
     ) -> None:
-        self.max_concurrency = max(1, max_concurrency)
+        self.max_concurrency = None if max_concurrency is None else max(1, max_concurrency)
         self.max_cpu_percent = min(100.0, max(1.0, float(max_cpu_percent)))
         self.max_memory_percent = min(100.0, max(1.0, float(max_memory_percent)))
         self.max_disk_active_percent = min(100.0, max(1.0, float(max_disk_active_percent)))
@@ -59,9 +59,14 @@ class Scheduler:
             ):
                 return [], []
 
-        available_slots = self.max_concurrency - running_count
-        if available_slots <= 0:
-            return [], []
+        # max_concurrency=None means no concurrency cap: admission is limited
+        # only by the CPU/memory/disk host thresholds checked above.
+        if self.max_concurrency is None:
+            available_slots: int | None = None
+        else:
+            available_slots = self.max_concurrency - running_count
+            if available_slots <= 0:
+                return [], []
 
         to_start: list[str] = []
         to_pending: list[str] = []
@@ -81,8 +86,9 @@ class Scheduler:
                     continue
 
             to_start.append(next_id)
-            available_slots -= 1
-            if available_slots <= 0:
-                break
+            if available_slots is not None:
+                available_slots -= 1
+                if available_slots <= 0:
+                    break
 
         return to_start, to_pending
