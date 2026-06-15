@@ -1,10 +1,47 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+
+def _task_env() -> dict[str, str]:
+    """Build a clean environment for task subprocesses.
+
+    task_host is normally launched from the project's own virtual environment,
+    so the inherited environment carries venv-activation artifacts
+    (VIRTUAL_ENV, _OLD_VIRTUAL_PATH, ...) and the project's .venv\\Scripts on
+    PATH.  When a task command activates *its own* venv (e.g. kayak's
+    setup script doing `. .venv\\Scripts\\Activate.ps1`), that activation
+    rebuilds PATH from the stale _OLD_VIRTUAL_PATH, silently dropping any PATH
+    entries the task added (such as the poetry directory) and breaking tools
+    like `poetry install`.
+    
+    """
+    env = os.environ.copy()
+
+    # Drop venv-activation artifacts inherited from the parent process.
+    for var in (
+        "VIRTUAL_ENV",
+        "_OLD_VIRTUAL_PATH",
+        "_OLD_VIRTUAL_PROMPT",
+        "_OLD_VIRTUAL_PYTHONHOME",
+    ):
+        env.pop(var, None)
+
+    # Remove the project's own venv Scripts/bin directories from PATH so a
+    # task's own venv activation starts from a clean base.
+    project_venv = str((Path(__file__).resolve().parent.parent / ".venv").resolve()).lower()
+    path_entries = [
+        entry
+        for entry in env.get("PATH", "").split(os.pathsep)
+        if entry and not entry.lower().startswith(project_venv)
+    ]
+
+    env["PATH"] = os.pathsep.join(path_entries)
+    return env
 
 @dataclass
 class RunningTaskHandle:
@@ -24,6 +61,17 @@ def build_powershell_script(commands: list[str]) -> str:
         "    param([int]$StepNo, [string]$Command)",
         "",
         "    Write-Host (\"[STEP {0}] {1}\" -f $StepNo, $Command)",
+        "",
+        "    # Auto-expose a local virtual environment (.venv) in the current",
+        "    # directory so its console scripts (e.g. kayak) are runnable without",
+        "    # a manual `. .venv\\Scripts\\Activate.ps1` step.",
+        "    $venvScripts = Join-Path (Get-Location).Path '.venv\\Scripts'",
+        "    if (Test-Path $venvScripts) {",
+        "        $pathEntries = $env:PATH -split ';'",
+        "        if ($pathEntries -notcontains $venvScripts) {",
+        "            $env:PATH = \"$venvScripts;$env:PATH\"",
+        "        }",
+        "    }",
         "",
         "    # Run each step in the same PowerShell process/session.",
         "    Invoke-Expression $Command",
@@ -100,13 +148,13 @@ class TaskRunner:
                 [
                     "powershell.exe",
                     "-NoLogo",
-                    "-NoProfile",
                     "-NonInteractive",
                     "-ExecutionPolicy",
                     "Bypass",
                     "-File",
                     str(script_path),
                 ],
+                env=_task_env(),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
