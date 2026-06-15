@@ -2,7 +2,7 @@
 
 Back to architecture: [design_arch.md](design_arch.md)
 
-Implementation file: [../task_host.py](../task_host.py)
+Implementation file: [../core/task_host.py](../core/task_host.py)
 
 ## 1. Responsibility
 

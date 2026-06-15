@@ -26,7 +26,7 @@ class MonitorServer:
 
     def start(self) -> None:
         manager = self.manager
-        web_root = (Path(__file__).resolve().parent / "web_gui").resolve()
+        web_root = (Path(__file__).resolve().parent.parent / "web_gui").resolve()
 
         class Handler(BaseHTTPRequestHandler):
             def _write_json(self, status: int, payload: dict[str, Any]) -> None:

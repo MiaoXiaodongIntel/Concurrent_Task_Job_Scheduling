@@ -39,13 +39,13 @@ The project provides the following core capabilities:
    - Optionally enables stdin command loop for interactive CLI mode.
       - Emits final JSON summary when requested.
    - Details: [design_task_host.md](design_task_host.md)
-   - Implementation: [../task_host.py](../task_host.py)
+   - Implementation: [../core/task_host.py](../core/task_host.py)
 - TaskRunner
    - Responsibilities:
       - Executes one task job process.
       - Collects exit code and output streams.
    - Details: [design_task_runner.md](design_task_runner.md)
-   - Implementation: [../task_runner.py](../task_runner.py)
+   - Implementation: [../core/task_runner.py](../core/task_runner.py)
 - TaskManager
    - Responsibilities:
       - Owns task metadata and lifecycle state transitions.
@@ -55,7 +55,7 @@ The project provides the following core capabilities:
       - Owns the resource registry (registered remote machines) and resource lock table.
       - Manages `pending` state: tasks blocked on occupied resources wait here until the resource is released.
    - Details: [design_task_manager.md](design_task_manager.md)
-   - Implementation: [../task_manager.py](../task_manager.py)
+   - Implementation: [../core/task_manager.py](../core/task_manager.py)
 - Scheduler
    - Responsibilities:
       - Chooses when and how many queued jobs to start.
@@ -63,7 +63,7 @@ The project provides the following core capabilities:
    - Applies concurrency and host-resource admission rules (CPU/memory thresholds + disk active-time threshold).
    - Applies per-task remote resource conflict detection: tasks whose resource is occupied are returned as `to_pending` candidates instead of `to_start`.
    - Details: [design_scheduler.md](design_scheduler.md)
-   - Implementation: [../scheduler.py](../scheduler.py)
+   - Implementation: [../core/scheduler.py](../core/scheduler.py)
 - ControlPlane
    - Responsibilities:
       - Receives runtime control commands.
@@ -73,43 +73,43 @@ The project provides the following core capabilities:
       - Coordinates host-level stop behavior.
    - Coordinates unified host shutdown behavior.
    - Details: [design_control_plane.md](design_control_plane.md)
-   - Implementation: integrated in [../task_manager.py](../task_manager.py) and [../task_host.py](../task_host.py)
+   - Implementation: integrated in [../core/task_manager.py](../core/task_manager.py) and [../core/task_host.py](../core/task_host.py)
 - MonitorAPI
    - Responsibilities:
       - Exposes host/task status and log query interfaces.
       - Serves as integration boundary for GUI/CLI and automation.
    - Details: [design_monitor_api.md](design_monitor_api.md)
-   - Implementation: [../monitor_api.py](../monitor_api.py), wired by [../task_host.py](../task_host.py)
+   - Implementation: [../core/monitor_api.py](../core/monitor_api.py), wired by [../core/task_host.py](../core/task_host.py)
 
 ## 4. Design-to-Implementation Traceability
 
 1. Entry point and wiring:
    - Doc: [design_task_host.md](design_task_host.md)
-   - Code: [../task_host.py](../task_host.py)
+   - Code: [../core/task_host.py](../core/task_host.py)
 2. Admission policy:
    - Doc: [design_scheduler.md](design_scheduler.md)
-   - Code: [../scheduler.py](../scheduler.py)
+   - Code: [../core/scheduler.py](../core/scheduler.py)
 3. Lifecycle state machine and orchestration loop:
    - Doc: [design_task_manager.md](design_task_manager.md)
-   - Code: [../task_manager.py](../task_manager.py)
+   - Code: [../core/task_manager.py](../core/task_manager.py)
 4. Process execution and PowerShell script materialization:
    - Doc: [design_task_runner.md](design_task_runner.md)
-   - Code: [../task_runner.py](../task_runner.py)
+   - Code: [../core/task_runner.py](../core/task_runner.py)
 5. Manual stop and abort orchestration:
    - Doc: [design_control_plane.md](design_control_plane.md)
-   - Code: integrated in [../task_manager.py](../task_manager.py) and [../task_host.py](../task_host.py)
+   - Code: integrated in [../core/task_manager.py](../core/task_manager.py) and [../core/task_host.py](../core/task_host.py)
 6. Rerun requeue operation:
    - Doc: [design_control_plane.md](design_control_plane.md), [design_task_manager.md](design_task_manager.md)
-   - Code: [../task_manager.py](../task_manager.py)
+   - Code: [../core/task_manager.py](../core/task_manager.py)
 7. Monitor read/control API surface:
    - Doc: [design_monitor_api.md](design_monitor_api.md)
-   - Code: [../monitor_api.py](../monitor_api.py)
+   - Code: [../core/monitor_api.py](../core/monitor_api.py)
 8. Runtime task submission and shutdown control:
    - Doc: [design_control_plane.md](design_control_plane.md), [design_monitor_api.md](design_monitor_api.md)
-   - Code: [../task_manager.py](../task_manager.py), [../monitor_api.py](../monitor_api.py)
+   - Code: [../core/task_manager.py](../core/task_manager.py), [../core/monitor_api.py](../core/monitor_api.py)
 9. Remote resource registry and conflict detection:
    - Doc: [design_task_manager.md](design_task_manager.md), [design_scheduler.md](design_scheduler.md)
-   - Code: [../task_manager.py](../task_manager.py), [../scheduler.py](../scheduler.py)
+   - Code: [../core/task_manager.py](../core/task_manager.py), [../core/scheduler.py](../core/scheduler.py)
 
 
 ---

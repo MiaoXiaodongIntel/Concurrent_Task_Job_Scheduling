@@ -2,9 +2,9 @@
 
 Back to architecture: [design_arch.md](design_arch.md)
 
-Implementation file: [../monitor_api.py](../monitor_api.py)
+Implementation file: [../core/monitor_api.py](../core/monitor_api.py)
 
-Composition wiring: [../task_host.py](../task_host.py)
+Composition wiring: [../core/task_host.py](../core/task_host.py)
 
 ## 1. Responsibility
 

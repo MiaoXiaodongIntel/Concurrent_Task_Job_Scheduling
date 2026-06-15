@@ -139,7 +139,7 @@ class HostProcess:
 
     def __enter__(self) -> int:
         cmd = [
-            PYTHON, str(ROOT / "task_host.py"),
+            PYTHON, str(ROOT / "core" / "task_host.py"),
             "--monitor-port", str(self._port),
             "--max-concurrency", str(self._max_concurrency),
             "--log-dir", str(ROOT / "logs"),

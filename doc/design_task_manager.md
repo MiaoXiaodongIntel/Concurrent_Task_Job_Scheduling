@@ -2,7 +2,7 @@
 
 Back to architecture: [design_arch.md](design_arch.md)
 
-Implementation file: [../task_manager.py](../task_manager.py)
+Implementation file: [../core/task_manager.py](../core/task_manager.py)
 
 ## 1. Responsibility
 

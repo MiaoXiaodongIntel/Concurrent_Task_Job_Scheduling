@@ -2,7 +2,7 @@
 
 Back to architecture: [design_arch.md](design_arch.md)
 
-Implementation file: [../scheduler.py](../scheduler.py)
+Implementation file: [../core/scheduler.py](../core/scheduler.py)
 
 ## 1. Responsibility
 

@@ -6,8 +6,8 @@ Related backend contracts:
 1. [design_monitor_api.md](design_monitor_api.md)
 2. [design_control_plane.md](design_control_plane.md)
 3. [design_task_manager.md](design_task_manager.md)
-4. [../monitor_api.py](../monitor_api.py)
-5. [../task_manager.py](../task_manager.py)
+4. [../core/monitor_api.py](../core/monitor_api.py)
+5. [../core/task_manager.py](../core/task_manager.py)
 
 ## 1. Purpose
 
