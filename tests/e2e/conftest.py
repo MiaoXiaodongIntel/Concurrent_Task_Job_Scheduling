@@ -106,6 +106,20 @@ def wait_for_host_state(port: int, state: str, timeout: float = 15.0) -> bool:
     return False
 
 
+def wait_for_task_state(port: int, task_id: str, state: str, timeout: float = 15.0) -> bool:
+    """Poll until a specific task reaches the given state."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            data = http_get(port, f"/tasks/{task_id}")
+            if data.get("status") == state:
+                return True
+        except Exception:
+            pass
+        time.sleep(0.3)
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Host process context manager
 # ---------------------------------------------------------------------------

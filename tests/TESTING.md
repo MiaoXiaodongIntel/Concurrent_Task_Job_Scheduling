@@ -8,11 +8,15 @@ tests/
 ├── fixtures/                     # Test data (JSON task files)
 │   ├── sample_tasks.json         # Standard 2-task sample (from UI preloadSubmitTemplate)
 │   ├── tasks_single.json         # Single task, for minimal scenarios
-│   └── tasks_replace.json        # Dedicated to replace-mode tests (2 tasks, no inflight dependency)
+│   ├── tasks_replace.json        # Dedicated to replace-mode tests (2 tasks, no inflight dependency)
+│   ├── tasks_long_running.json   # Single task with 30 s sleep; for graceful-stop/force-stop tests
+│   └── tasks_failing.json        # Single task that exits with code 1; for RUNNING->FAILED test
 │
 ├── unit/                         # Pure logic unit tests, no process or network
 │   ├── test_scheduler.py         # Scheduler.pick_next_tasks() admission logic
-│   └── test_task_loading.py      # task_host.load_tasks() file parsing and validation
+│   ├── test_task_loading.py      # task_host.load_tasks() file parsing and validation
+│   ├── test_host_state_machine.py  # HOST state transitions (start/graceful-stop/force-stop/shutdown)
+│   └── test_task_state_machine.py  # Task state transitions (rerun, STARTING->ABORTED via force-stop)
 │
 └── e2e/                          # End-to-end tests, spawning a real host process + HTTP (local only)
     ├── conftest.py               # Shared helpers: HostProcess, http_get/post, wait helpers
@@ -43,10 +47,13 @@ tests/
 |-------------|---------|-----------|
 | design_scheduler.md §4 | Admission policy: host_running, resource thresholds, concurrency cap, FIFO | `unit/test_scheduler.py` |
 | design_task_host.md §3 | Task file formats (list/dict), validation (duplicate id, empty commands) | `unit/test_task_loading.py` |
+| design_task_manager.md §3 | HOST state machine: all transitions, invalid-transition rejection | `unit/test_host_state_machine.py` |
+| design_task_manager.md §2.2 | Task state machine: STARTING->ABORTED, rerun (SUCCEEDED/FAILED/ABORTED->QUEUED) | `unit/test_task_state_machine.py` |
 | design_arch.md capability 1/5 | Multi-task concurrent execution, all tasks succeed | `e2e/test_smoke.py` |
-| design_control_plane.md §3.1 | graceful-stop: drain → wait for inflight, no new admissions | `e2e/test_control.py` |
-| design_control_plane.md §3.2 | force-stop: running tasks transition to aborted | `e2e/test_control.py` |
-| design_control_plane.md §3.3 | rerun: succeeded/failed → queued → succeed again | `e2e/test_control.py` |
+| design_control_plane.md §3.1 | graceful-stop: RUNNING->DRAINING, in-flight tasks complete, ->NOT_RUN | `e2e/test_control.py` |
+| design_control_plane.md §3.2 | force-stop: RUNNING->STOPPING_FORCE, tasks->ABORTED, ->NOT_RUN | `e2e/test_control.py` |
+| design_control_plane.md §3.3 | rerun: SUCCEEDED->QUEUED, task completes again | `e2e/test_control.py` |
+| design_task_manager.md §2.2 | RUNNING->FAILED: task exits with non-zero code | `e2e/test_control.py` |
 | design_control_plane.md §3.4 | submit append: add tasks; submit replace: rejected when inflight exists | `e2e/test_submit.py` |
 | design_monitor_api.md §4.1/4.3 | /health field completeness, /tasks schema, /tasks/{id}/logs cursor pagination | `e2e/test_monitor_api.py` |
 

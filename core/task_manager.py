@@ -1068,6 +1068,10 @@ class TaskManager:
                 task.exit_code = -1
                 task.abort_reason = f"spawn_failed: {exc}"
                 self._set_task_status(task, TaskStatus.FAILED)
+                # Release resource lock so pending tasks can proceed (§2.4: lock released
+                # when a task enters any terminal state).
+                self._resource_lock.pop(task.resource, None)
+                self._wake_pending_for_resource(task.resource)
             log_file.write(f"{now_iso()} [SYSTEM] spawn failed: {exc}\n")
             log_file.close()
             print(f"[TASK] {task_id} failed to start: {exc}")

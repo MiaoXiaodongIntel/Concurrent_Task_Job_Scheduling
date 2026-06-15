@@ -1,0 +1,14 @@
+{
+  "tasks": [
+    {
+      "task_id": "long-1",
+      "resource": "machine-A",
+      "priority": 1,
+      "commands": [
+        "Write-Host 'long-1 start'",
+        "Start-Sleep -Seconds 30",
+        "Write-Host 'long-1 done'"
+      ]
+    }
+  ]
+}

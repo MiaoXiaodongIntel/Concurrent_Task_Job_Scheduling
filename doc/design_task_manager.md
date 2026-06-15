@@ -72,6 +72,29 @@ Baseline transitions:
 9. `starting -> aborted` (force-stop path)
 10. `running -> aborted` (per-task user abort path)
 
+```mermaid
+stateDiagram-v2
+    [*] --> queued : submitted
+
+    queued --> starting : host RUNNING, resource is free
+    queued --> pending  : host RUNNING, resource is occupied
+
+    pending --> queued  : automatic [resource released, promoted as highest-priority waiter]
+    pending --> aborted : force-stop command or abort_task command
+
+    starting --> running : process alive
+    starting --> failed  : spawn failure
+    starting --> aborted : force-stop command
+
+    running --> succeeded : process exits with success
+    running --> failed    : process exits with failure
+    running --> aborted   : force-stop command or abort_task command
+
+    succeeded --> queued : rerun command
+    failed    --> queued : rerun command
+    aborted   --> queued : rerun command
+```
+
 ### 2.3 Queue Ordering and Priority
 
 1. Each task has a mandatory `priority: int` field (positive integer; lower value = higher priority).
@@ -117,6 +140,24 @@ Host transition policy:
 6. `STOPPING_FORCE -> NOT_RUN` after force-stop handling is completed.
 7. `NOT_RUN -> SHUTTING_DOWN` by shutdown command.
 8. `SHUTTING_DOWN` ends host loop immediately (no in-flight tasks exist at this point).
+
+```mermaid
+stateDiagram-v2
+    [*] --> NOT_RUN : initialized
+
+    NOT_RUN --> RUNNING       : start command
+    NOT_RUN --> SHUTTING_DOWN : shutdown command
+
+    RUNNING --> DRAINING       : graceful-stop command
+    RUNNING --> STOPPING_FORCE : force-stop command
+
+    DRAINING --> STOPPING_FORCE : force-stop command
+    DRAINING --> NOT_RUN        : automatic [no in-flight task remains]
+
+    STOPPING_FORCE --> NOT_RUN : automatic [force-stop handling complete]
+
+    SHUTTING_DOWN --> [*] : host loop exits
+```
 
 ## 4. Data Ownership
 

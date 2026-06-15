@@ -1,0 +1,13 @@
+{
+  "tasks": [
+    {
+      "task_id": "fail-1",
+      "resource": "machine-A",
+      "priority": 1,
+      "commands": [
+        "Write-Host 'fail-1 start'",
+        "exit 1"
+      ]
+    }
+  ]
+}
