@@ -227,3 +227,56 @@ def test_same_resource_in_tick_claim_does_not_consume_slot():
     assert to_start == ["t1", "t3"]    # t3 gets the slot freed by t2's pending
     assert to_pending == ["t2"]        # machine-X in-tick conflict → pending, no slot consumed
 
+
+def test_resource_threshold_queue_not_mutated():
+    """Rule 2: when host resource threshold is exceeded, queue must not be mutated.
+
+    If pick_next_tasks pops items from the queue before the threshold check, tasks
+    would be silently lost. This verifies the queue is identical after the call.
+    """
+    from scheduler import ResourceUsage
+    sched = _make_scheduler(max_cpu_percent=50.0)
+    queue = ["t1", "t2", "t3"]
+    high_cpu = lambda: ResourceUsage(cpu_percent=90.0, memory_percent=10.0, disk_active_percent=10.0)
+    to_start, to_pending = sched.pick_next_tasks(
+        queue=queue, running_count=0, host_running=True,
+        is_runnable=_always_runnable,
+        get_resource_usage=high_cpu,
+    )
+    assert to_start == []
+    assert to_pending == []
+    assert queue == ["t1", "t2", "t3"], "queue must be untouched when threshold is exceeded"
+
+
+def test_resource_threshold_tasks_start_after_load_drops():
+    """Rule 2: tasks blocked by high load resume normally once the threshold clears.
+
+    Simulates two consecutive ticks:
+    - Tick 1: CPU over threshold → nothing admitted, queue unchanged.
+    - Tick 2: CPU back to normal → tasks are admitted from the same queue.
+    """
+    from scheduler import ResourceUsage
+    sched = _make_scheduler(max_concurrency=4, max_cpu_percent=75.0)
+    queue = ["t1", "t2"]
+
+    # Tick 1 – high CPU load.
+    high_cpu = lambda: ResourceUsage(cpu_percent=90.0, memory_percent=10.0, disk_active_percent=10.0)
+    to_start, to_pending = sched.pick_next_tasks(
+        queue=queue, running_count=0, host_running=True,
+        is_runnable=_always_runnable,
+        get_resource_usage=high_cpu,
+    )
+    assert to_start == []
+    assert to_pending == []
+    assert queue == ["t1", "t2"], "queue must survive the high-load tick intact"
+
+    # Tick 2 – load drops below threshold; same queue reference is reused.
+    normal_cpu = lambda: ResourceUsage(cpu_percent=30.0, memory_percent=10.0, disk_active_percent=10.0)
+    to_start, to_pending = sched.pick_next_tasks(
+        queue=queue, running_count=0, host_running=True,
+        is_runnable=_always_runnable,
+        get_resource_usage=normal_cpu,
+    )
+    assert to_start == ["t1", "t2"], "all queued tasks must be admitted after load drops"
+    assert to_pending == []
+
