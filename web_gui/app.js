@@ -228,9 +228,9 @@ function renderTaskTable() {
           <td>${formatValue(task.pid)}</td>
           <td>${formatValue(task.started_at)}</td>
           <td>${formatValue(task.ended_at)}</td>
-          <td>${formatValue(task.exit_code)}</td>
+          <td>${formatValue(task.run_index)}</td>
           <td>
-            <button class="btn" data-open-task="${task.task_id}">Open</button>
+            <button class="btn" data-open-task="${task.task_id}">Detail</button>
             ${canAbort ? `<button class="btn danger" data-abort-task="${task.task_id}" style="margin-left:4px">Abort</button>` : ''}
           </td>
         </tr>`;

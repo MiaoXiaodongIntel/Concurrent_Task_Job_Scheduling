@@ -32,6 +32,8 @@
 22. [Entry 22 - Per-Run Execution History Model](#entry-22)
 23. [Entry 23 - Task Detail Selection Switches on Change](#entry-23)
 24. [Entry 24 - Adjustable Web GUI Refresh Interval](#entry-24)
+25. [Entry 25 - Tasks View exit_code Column Replaced by run_index](#entry-25)
+26. [Entry 26 - Tasks View Column and Button Labels Clarified](#entry-26)
 ## Change Log Rules
 
 Each entry uses:
@@ -399,5 +401,31 @@ Each entry uses:
   - Lets users reduce polling frequency or pause it to limit load and visual churn when observing long-running tasks.
   - Consolidates the previously hard-coded per-stream intervals into one user-visible, adjustable control.
   - Explicitly scopes the change to the presentation layer, leaving scheduling and execution untouched.
+
+---
+
+## Entry 25
+
+- Change summary: The Tasks view replaces the redundant `exit_code` column with a `run_index` column showing the task's rerun index.
+- Entry type: Design Modification
+- Original design -> New design:
+  - Original: The Tasks table had an `exit_code` column, which duplicated information already conveyed by the `status` badge (succeeded/failed/aborted).
+  - New: The `exit_code` column is removed and replaced with a `run_index` column that shows how many times the task has been rerun, providing information not available from status alone.
+- Why improved:
+  - Eliminates redundancy between `exit_code` and `status` columns.
+  - Exposes rerun count directly in the task list, giving operators immediate visibility into retry activity without opening Task Detail.
+
+---
+
+## Entry 26
+
+- Change summary: The Tasks view's `detail` column header is renamed to `Operation` and the `Open` button is relabeled `Detail` to clarify their purpose.
+- Entry type: Design Modification
+- Original design -> New design:
+  - Original: The action column was titled `detail` and the navigation button was labeled `Open`, making it unclear that the column holds action controls and that the button leads to Task Detail.
+  - New: The column header is `Operation`, signaling it contains action controls (Detail, Abort). The navigation button is labeled `Detail`, directly indicating it navigates to the Task Detail view.
+- Why improved:
+  - `Operation` makes it clear the column is for user actions, not a data field.
+  - `Detail` on the button aligns the label with the destination view name, reducing confusion for new users.
 
 
