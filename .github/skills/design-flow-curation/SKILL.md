@@ -110,7 +110,23 @@ Before saving:
 
 1. Collect new session events since last document update.
 2. Filter events using Inclusion Rules and Exclusion Rules.
-3. Convert each kept event into the required entry template.
-4. Append entries to doc/design_flow.md.
-5. Regenerate Index lines for all entries.
-6. Re-read and validate with Quality Checklist.
+3. **Present Change Summary List for confirmation** — list only the `Change summary` line for each candidate entry, numbered sequentially. Ask the user to confirm or provide revision feedback. Do NOT proceed further until the user responds.
+4. **Revision loop** — if the user provides feedback, revise the Change summary list accordingly and re-present it. Repeat until the user explicitly confirms the list is acceptable.
+5. Convert each confirmed Change summary into the full required entry template.
+6. Append entries to doc/design_flow.md.
+7. Regenerate Index lines for all entries.
+8. Re-read and validate with Quality Checklist.
+
+## Change Summary Confirmation Format
+
+When presenting the candidate list for user confirmation, use this format exactly:
+
+---
+Here are the proposed change summaries extracted from this session. Please confirm or provide revision feedback:
+
+1. <Change summary sentence>
+2. <Change summary sentence>
+...
+
+Reply "confirmed" if acceptable, or describe any adjustments needed.
+---

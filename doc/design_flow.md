@@ -30,6 +30,8 @@
 20. [Entry 20 - Remote Resource Conflict Detection Requirement](#entry-20)
 21. [Entry 21 - Per-Run Artifact Directory Requirement and Injection Design](#entry-21)
 22. [Entry 22 - Per-Run Execution History Model](#entry-22)
+23. [Entry 23 - Task Detail Selection Switches on Change](#entry-23)
+24. [Entry 24 - Adjustable Web GUI Refresh Interval](#entry-24)
 ## Change Log Rules
 
 Each entry uses:
@@ -374,5 +376,28 @@ Each entry uses:
   - Retains full operational context across rerun attempts without requiring external storage.
   - Isolates log files per run, preventing output from different attempts from being interleaved.
   - Clean `to_dict` / `from_dict` contract makes future migration to a persistent store a localized change.
+
+## Entry 23
+
+- Change summary: Task Detail now switches the viewed task immediately when the dropdown selection changes, replacing the explicit "Open" button.
+- Entry type: Design Modification
+- Original design -> New design:
+  - Original: Task Detail had a task dropdown plus an "Open" button; the detail/log view only updated after the user clicked "Open". The periodic task refresh also forcibly reset the dropdown's value back to the active detail task, so changing the selection appeared to revert.
+  - New: Selecting a different task in the dropdown fires a `change` handler that opens that task's detail and logs directly; the "Open" button is removed. The task-list refresh preserves the user's current dropdown selection instead of overwriting it.
+- Why improved:
+  - Removes a redundant click for the common case of inspecting a different task.
+  - Fixes the confusing behaviour where the dropdown visually reverted to the previous task.
+
+## Entry 24
+
+- Change summary: Web GUI auto-refresh is now controlled by an adjustable interval slider (0 = paused, up to 30s) instead of a fixed-interval "Refresh Now" button.
+- Entry type: Requirement Change
+- Original design -> New design:
+  - Original: The top bar had a "Refresh Now" button; GUI polling ran at fixed intervals (health 1s, tasks 1.5s, logs 0.8s) with no user control.
+  - New: A range slider (0–30s, default 1s) sets a single auto-refresh interval applied to all GUI polling (health, tasks, logs, and the resources view). The leftmost position (0) pauses auto-refresh entirely. The control affects only how often the Web GUI pulls data from the API and has no effect on task-host business logic.
+- Why improved:
+  - Lets users reduce polling frequency or pause it to limit load and visual churn when observing long-running tasks.
+  - Consolidates the previously hard-coded per-stream intervals into one user-visible, adjustable control.
+  - Explicitly scopes the change to the presentation layer, leaving scheduling and execution untouched.
 
 

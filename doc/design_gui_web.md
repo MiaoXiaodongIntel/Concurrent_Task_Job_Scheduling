@@ -221,7 +221,7 @@ Primary pages:
 5. Resources
 
 Navigation style:
-1. Top bar: host status label, "Updated Xs ago" refresh indicator, manual Refresh Now button
+1. Top bar: host status label, "Updated Xs ago" refresh indicator, and an auto-refresh interval slider
 2. Left nav: 5 items — Dashboard / Tasks / Task Detail / Submit Tasks / Resources
 3. Main panel: page content
 
@@ -235,10 +235,11 @@ UX principles applied:
 
 ## 10. Polling and Refresh Plan
 
-1. `GET /health`: every 1 second
-2. `GET /tasks`: every 1 to 2 seconds
-3. `GET /tasks/{id}/logs`: every 0.5 to 1 second only when detail page is active
-4. After any successful command submit, trigger immediate `health` and `tasks` refresh
+1. A single user-adjustable auto-refresh interval (range slider in the top bar) drives all GUI polling. Range: `0`–`30` seconds, default `1` second.
+2. When the interval is greater than 0, `GET /health`, `GET /tasks`, and (when the detail page is active) `GET /tasks/{id}/logs` are all polled at that interval; the Resources view (when active) is polled at the same interval.
+3. The leftmost slider position (`0`) pauses all auto-refresh; no polling timers run until the user moves the slider back to a positive value.
+4. The refresh interval is a presentation-layer control only — it changes how often the Web GUI pulls from the API and has no effect on task-host scheduling or execution.
+5. After any successful command submit, trigger an immediate `health` and `tasks` refresh regardless of the slider value.
 
 ## 11. Open Gaps and Follow-up
 
@@ -258,5 +259,6 @@ UX principles applied:
 4. **Breadcrumb navigation**: Task Detail view shows `Tasks › <task_id>` breadcrumb. Clicking "Tasks" returns to the Tasks list.
 5. **Button disabled state**: All host command buttons use `disabled=true` when the current `host_state` does not satisfy the precondition. CSS renders disabled buttons at 35% opacity with `cursor: not-allowed`. The `title` attribute carries a human-readable explanation of the required state.
 6. **Host state badge**: The Host Commands panel heading includes a live-updating colored badge showing the current `host_state`.
-7. **Refresh indicator**: The Refresh Now button is accompanied by an "Updated Xs ago" label that updates every second. Clicking the button disables it and changes its label to "Refreshing…" during the request.
+7. **Refresh control**: The top bar includes an "Updated Xs ago" label (updates every second) alongside an auto-refresh interval slider (`0`–`30s`, default `1s`). Moving the slider re-applies the polling interval immediately; the `0` position pauses auto-refresh and the label reads "off". The slider affects only GUI polling, not task-host logic.
 8. **Shutdown mode**: The drain/force mode `<select>` is inline with the Shutdown button in the Host Commands action row.
+9. **Task Detail selection**: The Task Detail page uses a single task `<select>`; changing the selection switches the displayed task and its logs immediately (no separate "Open" button). Background task-list refreshes preserve the user's current dropdown selection.

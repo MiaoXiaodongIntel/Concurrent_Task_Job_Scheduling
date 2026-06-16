@@ -20,7 +20,11 @@
     </div>
     <div class="topbar-refresh">
       <span id="lastRefreshLabel" class="refresh-time"></span>
-      <button id="quickRefresh" class="btn btn-secondary" title="Manually refresh all data. Data auto-refreshes every ~1s.">Refresh Now</button>
+      <div class="refresh-slider" title="Auto-refresh interval for the Web GUI. Slide fully left to pause refreshing; slide right to increase the interval up to 30s.">
+        <span class="refresh-slider-caption">Refresh</span>
+        <input id="refreshIntervalSlider" type="range" min="0" max="30" step="1" value="1" />
+        <span id="refreshIntervalLabel" class="refresh-interval-label">1s</span>
+      </div>
     </div>
   </header>
 
@@ -152,7 +156,6 @@
         <div class="panel">
           <div class="filters">
             <select id="detailTaskSelect"></select>
-            <button id="openTaskDetailBtn" class="btn">Open</button>
           </div>
         </div>
 

@@ -12,11 +12,12 @@ const state = {
   commandHistory: [],
   lastRefreshAt: null,
   resourcesPollInterval: null,
+  refreshIntervalSec: 1,           // Web GUI auto-refresh interval; 0 = paused
+  pollTimers: { health: null, tasks: null, logs: null },
 };
 
-const POLL_HEALTH_MS = 1000;
-const POLL_TASKS_MS = 1500;
-const POLL_LOGS_MS = 800;
+const DEFAULT_REFRESH_SEC = 1;
+const MAX_REFRESH_SEC = 30;
 
 function byId(id) {
   return document.getElementById(id);
@@ -229,7 +230,7 @@ function renderTaskTable() {
           <td>${formatValue(task.ended_at)}</td>
           <td>${formatValue(task.exit_code)}</td>
           <td>
-            <button class="btn btn-secondary" data-open-task="${task.task_id}">Open</button>
+            <button class="btn" data-open-task="${task.task_id}">Open</button>
             ${canAbort ? `<button class="btn danger" data-abort-task="${task.task_id}" style="margin-left:4px">Abort</button>` : ''}
           </td>
         </tr>`;
@@ -239,12 +240,14 @@ function renderTaskTable() {
   byId("checkAllTasks").checked = list.length > 0 && list.every((t) => state.selectedTaskIds.has(t.task_id));
 
   const detailSelect = byId("detailTaskSelect");
+  const prevDetailValue = detailSelect.value;
   detailSelect.innerHTML = state.tasks
     .map((task) => `<option value="${task.task_id}">${task.task_id} (${task.status})</option>`)
     .join("");
 
-  if (state.detailTaskId) {
-    detailSelect.value = state.detailTaskId;
+  const valueToRestore = prevDetailValue || state.detailTaskId;
+  if (valueToRestore) {
+    detailSelect.value = valueToRestore;
   }
 }
 
@@ -292,7 +295,7 @@ function renderTaskDetail() {
           <td>${formatValue(r.ended_at)}</td>
           <td>${artifactCell}</td>
           <td>
-            <button class="btn btn-secondary" style="font-size:0.8em;padding:2px 8px"
+            <button class="btn" style="font-size:0.8em;padding:2px 8px"
               data-view-run="${r.run_index}">View Logs</button>
           </td>
         </tr>`;
@@ -343,7 +346,7 @@ function renderTaskDetail() {
       <button class="btn danger" data-abort-task="${task.task_id}"
         ${canAbort ? '' : 'disabled'}
         title="${abortTitle}">Abort</button>
-      <button class="btn btn-secondary" id="viewCurrentRunLogsBtn"
+      <button class="btn" id="viewCurrentRunLogsBtn"
         ${currentRunViewing ? 'disabled' : ''}
         title="Switch log viewer to current run">Current Run Logs</button>
     </div>
@@ -400,9 +403,11 @@ function switchView(viewId) {
   });
   if (enteringResources) {
     refreshResources().catch(() => {});
-    state.resourcesPollInterval = setInterval(() => {
-      refreshResources().catch(() => {});
-    }, 1000);
+    if (state.refreshIntervalSec > 0) {
+      state.resourcesPollInterval = setInterval(() => {
+        refreshResources().catch(() => {});
+      }, state.refreshIntervalSec * 1000);
+    }
   }
   if (leavingResources && state.resourcesPollInterval) {
     clearInterval(state.resourcesPollInterval);
@@ -586,19 +591,15 @@ function parseSubmitJson() {
 }
 
 function bindEvents() {
-  byId("quickRefresh").addEventListener("click", async () => {
-    const btn = byId("quickRefresh");
-    const originalText = btn.textContent;
-    btn.textContent = "Refreshing…";
-    btn.disabled = true;
-    try {
-      await Promise.all([refreshHealth(), refreshTasks()]);
-      showAlert("Refreshed");
-    } finally {
-      btn.textContent = originalText;
-      btn.disabled = false;
-    }
-  });
+  const refreshSlider = byId("refreshIntervalSlider");
+  if (refreshSlider) {
+    refreshSlider.value = String(state.refreshIntervalSec);
+    updateRefreshIntervalLabel();
+    refreshSlider.addEventListener("input", () => {
+      const secs = Number(refreshSlider.value);
+      applyRefreshInterval(Number.isFinite(secs) ? secs : DEFAULT_REFRESH_SEC);
+    });
+  }
 
   document.querySelectorAll(".nav-link").forEach((button) => {
     button.addEventListener("click", () => switchView(button.dataset.view));
@@ -706,13 +707,12 @@ function bindEvents() {
     await sendCommand("rerun", { task_ids: taskIds });
   });
 
-  byId("openTaskDetailBtn").addEventListener("click", () => {
-    const selected = byId("detailTaskSelect").value;
-    if (!selected) {
+  function openTaskDetail(taskId) {
+    if (!taskId) {
       showAlert("No task selected", "error");
       return;
     }
-    state.detailTaskId = selected;
+    state.detailTaskId = taskId;
     state.detailTask = null;
     state.detailRunIndex = null;
     state.logCursor = 0;
@@ -720,6 +720,11 @@ function bindEvents() {
     renderTaskDetail();
     renderLogs();
     refreshDetailTask().catch(() => {});
+  }
+
+  byId("detailTaskSelect").addEventListener("change", () => {
+    const selected = byId("detailTaskSelect").value;
+    openTaskDetail(selected);
   });
 
   byId("clearLogBtn").addEventListener("click", () => {
@@ -845,6 +850,55 @@ function preloadSubmitTemplate() {
   byId("submitJsonEditor").value = JSON.stringify(sample, null, 2);
 }
 
+function updateRefreshIntervalLabel() {
+  const label = byId("refreshIntervalLabel");
+  if (!label) return;
+  label.textContent = state.refreshIntervalSec > 0 ? `${state.refreshIntervalSec}s` : "off";
+}
+
+// (Re)configure all Web GUI polling timers based on the chosen interval.
+// secs <= 0 pauses auto-refresh entirely. This only affects how often the GUI
+// pulls data from the API; it has no effect on the task host business logic.
+function applyRefreshInterval(secs) {
+  const clamped = Math.max(0, Math.min(MAX_REFRESH_SEC, Math.floor(secs)));
+  state.refreshIntervalSec = clamped;
+  updateRefreshIntervalLabel();
+
+  // Clear existing main-data timers.
+  Object.keys(state.pollTimers).forEach((key) => {
+    if (state.pollTimers[key]) {
+      clearInterval(state.pollTimers[key]);
+      state.pollTimers[key] = null;
+    }
+  });
+  // Clear the resources-view timer too; it is restarted below if applicable.
+  if (state.resourcesPollInterval) {
+    clearInterval(state.resourcesPollInterval);
+    state.resourcesPollInterval = null;
+  }
+
+  if (clamped <= 0) {
+    return; // paused
+  }
+
+  const ms = clamped * 1000;
+  state.pollTimers.health = setInterval(() => {
+    refreshHealth().catch((err) => showAlert(`Health poll failed: ${err.message}`, "error"));
+  }, ms);
+  state.pollTimers.tasks = setInterval(() => {
+    refreshTasks().catch((err) => showAlert(`Tasks poll failed: ${err.message}`, "error"));
+  }, ms);
+  state.pollTimers.logs = setInterval(() => {
+    refreshTaskLogs().catch((err) => showAlert(`Log poll failed: ${err.message}`, "error"));
+  }, ms);
+
+  if (state.activeView === "resourcesView") {
+    state.resourcesPollInterval = setInterval(() => {
+      refreshResources().catch(() => {});
+    }, ms);
+  }
+}
+
 async function bootstrap() {
   bindEvents();
   preloadSubmitTemplate();
@@ -862,17 +916,7 @@ async function bootstrap() {
     showAlert(`Initial load failed: ${err.message}`, "error");
   }
 
-  setInterval(() => {
-    refreshHealth().catch((err) => showAlert(`Health poll failed: ${err.message}`, "error"));
-  }, POLL_HEALTH_MS);
-
-  setInterval(() => {
-    refreshTasks().catch((err) => showAlert(`Tasks poll failed: ${err.message}`, "error"));
-  }, POLL_TASKS_MS);
-
-  setInterval(() => {
-    refreshTaskLogs().catch((err) => showAlert(`Log poll failed: ${err.message}`, "error"));
-  }, POLL_LOGS_MS);
+  applyRefreshInterval(state.refreshIntervalSec);
 
   setInterval(() => {
     const label = byId("lastRefreshLabel");
