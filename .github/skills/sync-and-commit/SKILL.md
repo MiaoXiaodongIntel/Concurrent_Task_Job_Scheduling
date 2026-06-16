@@ -93,22 +93,15 @@ Stage all modified/added files and commit with a message derived from `CHANGE_SU
 ```
 
 Rules:
-- First line = `CHANGE_SUMMARY` verbatim (imperative mood preferred, ≤72 chars).
-- Body lines use the bullet format above; keep each line factual and short.
-- Do **not** describe implementation details beyond the file names.
-- Do **not** include timestamp, author, or branch name in the message body.
+- The commit message is **exactly one line**: `CHANGE_SUMMARY` verbatim (imperative mood preferred, ≤72 chars).
+- **No body**. Do not add bullet points, file lists, or any additional lines.
+- Do **not** include timestamp, author, or branch name.
 
 Run:
 
 ```
 git add -A
-git commit -m "<first line>" -m "<body>"
-```
-
-Or use a temp file if the body is multi-line:
-
-```
-git commit -F <(echo -e "<full message>")
+git commit -m "<CHANGE_SUMMARY>"
 ```
 
 ---
