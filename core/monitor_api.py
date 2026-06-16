@@ -117,10 +117,12 @@ class MonitorServer:
                         try:
                             cursor = int(query.get("cursor", ["0"])[0])
                             limit = int(query.get("limit", ["200"])[0])
+                            run_raw = query.get("run", [None])[0]
+                            run_index = int(run_raw) if run_raw is not None else None
                         except ValueError:
-                            self._write_json(400, {"error": "cursor and limit must be integers"})
+                            self._write_json(400, {"error": "cursor, limit, and run must be integers"})
                             return
-                        data = manager.read_task_logs(task_id=task_id, cursor=cursor, limit=limit)
+                        data = manager.read_task_logs(task_id=task_id, cursor=cursor, limit=limit, run_index=run_index)
                         if data is None:
                             self._write_json(404, {"error": f"task not found: {task_id}"})
                         else:

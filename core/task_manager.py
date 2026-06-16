@@ -51,6 +51,42 @@ ALLOWED_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
 
 
 @dataclass
+class RunRecord:
+    """Immutable snapshot of one completed execution of a TaskJob."""
+
+    run_index: int
+    started_at: str | None
+    ended_at: str | None
+    exit_code: int | None
+    status: str          # terminal status value: succeeded / failed / aborted
+    log_path: str | None # per-run system log (stdout/stderr captured by host)
+    artifact_dir: str | None  # tool-specific artifact directory (e.g. Kayak log dir)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "run_index": self.run_index,
+            "started_at": self.started_at,
+            "ended_at": self.ended_at,
+            "exit_code": self.exit_code,
+            "status": self.status,
+            "log_path": self.log_path,
+            "artifact_dir": self.artifact_dir,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, object]) -> "RunRecord":
+        return cls(
+            run_index=int(d["run_index"]),  # type: ignore[arg-type]
+            started_at=d.get("started_at"),  # type: ignore[arg-type]
+            ended_at=d.get("ended_at"),  # type: ignore[arg-type]
+            exit_code=d.get("exit_code"),  # type: ignore[arg-type]
+            status=str(d.get("status", "")),
+            log_path=d.get("log_path"),  # type: ignore[arg-type]
+            artifact_dir=d.get("artifact_dir"),  # type: ignore[arg-type]
+        )
+
+
+@dataclass
 class TaskJob:
     task_id: str
     commands: list[str]
@@ -65,10 +101,13 @@ class TaskJob:
     abort_reason: str | None = None
     last_output_ts: str | None = None
     log_path: str | None = None
+    artifact_dir: str | None = None
     blocked_by: str | None = None
+    run_index: int = 0
+    run_history: list[RunRecord] = field(default_factory=list)
 
-    def to_dict(self) -> dict[str, object]:
-        return {
+    def to_dict(self, include_history: bool = False) -> dict[str, object]:
+        d: dict[str, object] = {
             "task_id": self.task_id,
             "resource": self.resource,
             "priority": self.priority,
@@ -83,7 +122,12 @@ class TaskJob:
             "abort_reason": self.abort_reason,
             "last_output_ts": self.last_output_ts,
             "log_path": self.log_path,
+            "artifact_dir": self.artifact_dir,
+            "run_index": self.run_index,
         }
+        if include_history:
+            d["run_history"] = [r.to_dict() for r in self.run_history]
+        return d
 
 
 class _SystemResourceProbe:
@@ -232,6 +276,7 @@ class TaskManager:
         scheduler_tick: float,
         status_interval: float,
         registered_resources: list[str] | None = None,
+        artifact_base_dir: Path | None = None,
     ) -> None:
         self.tasks: dict[str, TaskJob] = {task.task_id: task for task in tasks}
         # Queue is sorted by (priority asc, created_at asc)
@@ -242,6 +287,7 @@ class TaskManager:
         self.scheduler = scheduler
         self.runner = runner
         self.log_dir = log_dir
+        self.artifact_base_dir = artifact_base_dir
         self.scheduler_tick = max(0.2, scheduler_tick)
         self.status_interval = max(0.5, status_interval)
 
@@ -597,6 +643,19 @@ class TaskManager:
                     rejected.append(task_id)
                     continue
 
+                # Archive current run into run_history before resetting.
+                record = RunRecord(
+                    run_index=task.run_index,
+                    started_at=task.started_at,
+                    ended_at=task.ended_at,
+                    exit_code=task.exit_code,
+                    status=task.status.value,
+                    log_path=task.log_path,
+                    artifact_dir=task.artifact_dir,
+                )
+                task.run_history.append(record)
+                task.run_index += 1
+
                 self._set_task_status(task, TaskStatus.QUEUED)
                 task.started_at = None
                 task.ended_at = None
@@ -604,6 +663,8 @@ class TaskManager:
                 task.exit_code = None
                 task.abort_reason = None
                 task.last_output_ts = None
+                task.log_path = None
+                task.artifact_dir = None
                 task.blocked_by = None
                 accepted.append(task.task_id)
 
@@ -918,16 +979,27 @@ class TaskManager:
             task = self.tasks.get(task_id)
             if task is None:
                 return None
-            return task.to_dict()
+            return task.to_dict(include_history=True)
 
-    def read_task_logs(self, task_id: str, cursor: int = 0, limit: int = 200) -> dict[str, Any] | None:
+    def read_task_logs(self, task_id: str, cursor: int = 0, limit: int = 200, run_index: int | None = None) -> dict[str, Any] | None:
         if limit < 1:
             limit = 1
         with self._lock:
             task = self.tasks.get(task_id)
             if task is None:
                 return None
-            log_path = task.log_path
+            if run_index is None:
+                # Current run
+                log_path = task.log_path
+            elif run_index == task.run_index:
+                # Explicitly requested current run index
+                log_path = task.log_path
+            else:
+                # Historical run: look up in run_history
+                record = next((r for r in task.run_history if r.run_index == run_index), None)
+                if record is None:
+                    return {"task_id": task_id, "cursor": cursor, "next_cursor": 0, "eof": True, "lines": [], "run_index": run_index, "error": "run_not_found"}
+                log_path = record.log_path
 
         lines: list[str] = []
         if log_path and Path(log_path).exists():
@@ -944,6 +1016,7 @@ class TaskManager:
 
         return {
             "task_id": task_id,
+            "run_index": run_index if run_index is not None else task.run_index,
             "cursor": cursor,
             "next_cursor": next_cursor,
             "eof": eof,
@@ -1056,12 +1129,32 @@ class TaskManager:
             self._resource_lock[task.resource] = task_id
 
         self.log_dir.mkdir(parents=True, exist_ok=True)
-        log_path = self.log_dir / f"{task.task_id}.log"
+        task_log_dir = self.log_dir / task.task_id
+        task_log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = task_log_dir / f"run_{task.run_index}.log"
         task.log_path = str(log_path)
+
+        # Compute artifact_dir for this run and expand {ARTIFACT_DIR} in commands.
+        # The directory is only created (and the placeholder only matters) when the
+        # task's commands actually reference {ARTIFACT_DIR}.  This ensures non-Kayak
+        # tasks produce no artifact directories even when artifact_base_dir is set.
+        artifact_dir: str | None = None
+        needs_artifact = any("{ARTIFACT_DIR}" in cmd for cmd in task.commands)
+        if needs_artifact and self.artifact_base_dir is not None:
+            artifact_path = self.artifact_base_dir / task.task_id / f"run_{task.run_index}"
+            artifact_path.mkdir(parents=True, exist_ok=True)
+            artifact_dir = str(artifact_path)
+        task.artifact_dir = artifact_dir
+
+        # Build the effective command list with placeholder substituted.
+        effective_commands = task.commands
+        if artifact_dir is not None:
+            effective_commands = [cmd.replace("{ARTIFACT_DIR}", artifact_dir) for cmd in task.commands]
+
         log_file = log_path.open("a", encoding="utf-8")
 
         try:
-            handle = self.runner.start_task(task.commands)
+            handle = self.runner.start_task(effective_commands)
         except OSError as exc:
             with self._lock:
                 task.ended_at = now_iso()

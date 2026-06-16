@@ -18,14 +18,14 @@ MonitorAPI is the primary control surface for GUI integration; stdin command con
 
 1. `GET /health`
 2. `GET /tasks`
-3. `GET /tasks/{id}`
-4. `GET /tasks/{id}/logs?cursor=...`
+3. `GET /tasks/{id}` (includes `run_history`)
+4. `GET /tasks/{id}/logs?cursor=...&limit=...&run=...`
 5. `GET /resources`
 
 Transport contract:
 
 1. HTTP JSON API served by local host process.
-2. `/tasks/{id}/logs` uses line-based `cursor` and optional `limit` query parameters.
+2. `/tasks/{id}/logs` uses line-based `cursor`, optional `limit`, and optional `run` (run_index) query parameters. When `run` is omitted, the current run's log is returned.
 
 ## 3. Control Interfaces
 
@@ -73,7 +73,20 @@ Task-level fields:
 10. `exit_code`
 11. `abort_reason`
 12. `last_output_ts`
-13. `log_path`
+13. `log_path` (current run's system log path)
+14. `artifact_dir` (current run's tool artifact directory, or null)
+15. `run_index` (0-based run counter; incremented each rerun)
+16. `run_history` (list of `RunRecord` — **only present in `GET /tasks/{id}` response**, omitted from `GET /tasks` list for response size)
+
+RunRecord fields (per entry in `run_history`):
+
+1. `run_index`: integer
+2. `started_at`: timestamp or null
+3. `ended_at`: timestamp or null
+4. `exit_code`: integer or null
+5. `status`: terminal status string (`succeeded`/`failed`/`aborted`)
+6. `log_path`: string or null
+7. `artifact_dir`: string or null
 
 Resource-level fields (`GET /resources`):
 

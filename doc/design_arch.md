@@ -111,7 +111,3 @@ The project provides the following core capabilities:
    - Doc: [design_task_manager.md](design_task_manager.md), [design_scheduler.md](design_scheduler.md)
    - Code: [../core/task_manager.py](../core/task_manager.py), [../core/scheduler.py](../core/scheduler.py)
 
-
----
-
-Last updated: 2026-06-14

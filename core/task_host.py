@@ -159,6 +159,16 @@ def parse_args() -> argparse.Namespace:
         help="Directory for per-task log files (default: logs)",
     )
     parser.add_argument(
+        "--artifact-base-dir",
+        default="task_artifacts",
+        help=(
+            "Base directory for tool-specific artifact output (e.g. Kayak log dirs). "
+            "When a task command contains {ARTIFACT_DIR}, it is expanded to "
+            "<artifact-base-dir>/<task_id>/run_<N>/ and the directory is created. "
+            "Commands without {ARTIFACT_DIR} are unaffected (default: task_artifacts)."
+        ),
+    )
+    parser.add_argument(
         "--summary-json",
         default="",
         help="Optional path to write final host/task summary as JSON",
@@ -241,6 +251,7 @@ def main() -> int:
     args = parse_args()
 
     log_dir = Path(args.log_dir).resolve()
+    artifact_base_dir = Path(args.artifact_base_dir).resolve()
 
     registered_resources: list[str] = []
     tasks: list[TaskJob] = []
@@ -277,6 +288,7 @@ def main() -> int:
         scheduler=scheduler,
         runner=runner,
         log_dir=log_dir,
+        artifact_base_dir=artifact_base_dir,
         scheduler_tick=args.scheduler_tick,
         status_interval=args.status_interval,
         registered_resources=registered_resources if registered_resources else None,

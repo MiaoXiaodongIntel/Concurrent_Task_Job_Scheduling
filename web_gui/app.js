@@ -5,6 +5,8 @@ const state = {
   activeView: "dashboardView",
   selectedTaskIds: new Set(),
   detailTaskId: "",
+  detailTask: null,       // full task detail fetched from GET /tasks/<id> (includes run_history)
+  detailRunIndex: null,   // null = current run, number = specific historical run index
   logCursor: 0,
   logLines: [],
   commandHistory: [],
@@ -256,36 +258,119 @@ function renderTaskDetail() {
 
   if (!state.detailTaskId) {
     panel.innerHTML = "<p>Select one task and click Open.</p>";
+    _updateLogRunLabel();
     return;
   }
 
-  const task = state.tasks.find((item) => item.task_id === state.detailTaskId);
+  // Use full detail (with run_history) if available; fall back to list snapshot.
+  const task = state.detailTask || state.tasks.find((item) => item.task_id === state.detailTaskId);
   if (!task) {
     panel.innerHTML = `<p>Task not found: ${state.detailTaskId}</p>`;
+    _updateLogRunLabel();
     return;
   }
 
   const canAbort = task.status === 'running' || task.status === 'pending';
   const abortTitle = canAbort ? 'Abort this task' : 'Task is not running or pending';
+  const runHistory = task.run_history || [];
+
+  // Build run history table rows (sorted newest first for display).
+  const historyRows = [...runHistory]
+    .sort((a, b) => b.run_index - a.run_index)
+    .map((r) => {
+      const statusClass = r.status || "unknown";
+      const isViewing = state.detailRunIndex === r.run_index;
+      const artifactCell = r.artifact_dir
+        ? `<span title="${r.artifact_dir}" style="font-size:0.8em;word-break:break-all">${r.artifact_dir}</span>`
+        : "-";
+      return `
+        <tr${isViewing ? ' class="viewing-run"' : ''}>
+          <td>${r.run_index}</td>
+          <td><span class="badge ${statusClass}">${r.status}</span></td>
+          <td>${formatValue(r.exit_code)}</td>
+          <td>${formatValue(r.started_at)}</td>
+          <td>${formatValue(r.ended_at)}</td>
+          <td>${artifactCell}</td>
+          <td>
+            <button class="btn btn-secondary" style="font-size:0.8em;padding:2px 8px"
+              data-view-run="${r.run_index}">View Logs</button>
+          </td>
+        </tr>`;
+    }).join("");
+
+  const currentRunViewing = state.detailRunIndex === null || state.detailRunIndex === task.run_index;
+  const currentArtifactCell = task.artifact_dir
+    ? `<span title="${task.artifact_dir}" style="font-size:0.85em;word-break:break-all">${task.artifact_dir}</span>`
+    : "-";
+
+  const historySection = runHistory.length > 0 ? `
+    <details style="margin-top:12px" open>
+      <summary style="cursor:pointer;font-weight:600;margin-bottom:6px">
+        Run History (${runHistory.length} past run${runHistory.length !== 1 ? "s" : ""})
+      </summary>
+      <div style="overflow-x:auto">
+        <table style="width:100%;font-size:0.85em;border-collapse:collapse">
+          <thead>
+            <tr style="text-align:left;border-bottom:1px solid #ddd">
+              <th style="padding:4px 8px">#</th>
+              <th style="padding:4px 8px">Status</th>
+              <th style="padding:4px 8px">Exit</th>
+              <th style="padding:4px 8px">Started</th>
+              <th style="padding:4px 8px">Ended</th>
+              <th style="padding:4px 8px">Artifact Dir</th>
+              <th style="padding:4px 8px">Logs</th>
+            </tr>
+          </thead>
+          <tbody>${historyRows}</tbody>
+        </table>
+      </div>
+    </details>` : "";
+
   panel.innerHTML = `
     <h3>${task.task_id}</h3>
-    <p><strong>status:</strong> ${task.status} <strong>pid:</strong> ${formatValue(task.pid)} <strong>exit_code:</strong> ${formatValue(task.exit_code)}</p>
+    <p><strong>status:</strong> ${task.status}
+       <strong>run #:</strong> ${formatValue(task.run_index)}
+       <strong>pid:</strong> ${formatValue(task.pid)}
+       <strong>exit_code:</strong> ${formatValue(task.exit_code)}</p>
     <p><strong>resource:</strong> ${formatValue(task.resource)} &nbsp; <strong>priority:</strong> ${formatValue(task.priority)}</p>
     <p><strong>blocked_by:</strong> ${formatValue(task.blocked_by)}</p>
     <p><strong>created_at:</strong> ${formatValue(task.created_at)}</p>
     <p><strong>started_at:</strong> ${formatValue(task.started_at)} <strong>ended_at:</strong> ${formatValue(task.ended_at)}</p>
     <p><strong>abort_reason:</strong> ${formatValue(task.abort_reason)}</p>
     <p><strong>log_path:</strong> ${formatValue(task.log_path)}</p>
-    <div class="actions" style="margin-top:8px">
+    <p><strong>artifact_dir:</strong> ${currentArtifactCell}</p>
+    <div class="actions" style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <button class="btn danger" data-abort-task="${task.task_id}"
         ${canAbort ? '' : 'disabled'}
         title="${abortTitle}">Abort</button>
+      <button class="btn btn-secondary" id="viewCurrentRunLogsBtn"
+        ${currentRunViewing ? 'disabled' : ''}
+        title="Switch log viewer to current run">Current Run Logs</button>
     </div>
+    ${historySection}
   `;
+
+  _updateLogRunLabel();
 }
 
 function renderLogs() {
   byId("logViewer").textContent = state.logLines.join("\n");
+}
+
+function _updateLogRunLabel() {
+  const label = byId("logRunLabel");
+  if (!label) return;
+  if (!state.detailTaskId) {
+    label.textContent = "";
+    return;
+  }
+  if (state.detailRunIndex === null) {
+    label.textContent = "Viewing: current run";
+    label.style.color = "#2a7";
+  } else {
+    label.textContent = `Viewing: run #${state.detailRunIndex}`;
+    label.style.color = "#888";
+  }
 }
 
 function renderCommandHistory() {
@@ -338,6 +423,21 @@ async function refreshTasks() {
   state.tasks = data.tasks || [];
   renderRecentTasks();
   renderTaskTable();
+  if (state.activeView === "taskDetailView" && state.detailTaskId) {
+    await refreshDetailTask();
+  } else {
+    renderTaskDetail();
+  }
+}
+
+async function refreshDetailTask() {
+  if (!state.detailTaskId) return;
+  try {
+    const task = await requestJson(`/tasks/${encodeURIComponent(state.detailTaskId)}`);
+    state.detailTask = task;
+  } catch (_err) {
+    state.detailTask = null;
+  }
   renderTaskDetail();
 }
 
@@ -381,6 +481,10 @@ async function refreshTaskLogs() {
   if (!state.detailTaskId) {
     return;
   }
+  // For historical runs auto-refresh makes no sense (run is already complete).
+  if (state.detailRunIndex !== null) {
+    return;
+  }
   if (!byId("autoLogRefresh").checked) {
     return;
   }
@@ -398,6 +502,27 @@ async function refreshTaskLogs() {
     renderLogs();
   }
   state.logCursor = payload.next_cursor || state.logCursor;
+}
+
+async function loadRunLogs(runIndex) {
+  state.detailRunIndex = runIndex;
+  state.logCursor = 0;
+  state.logLines = [];
+  renderLogs();
+  _updateLogRunLabel();
+  if (!state.detailTaskId) return;
+  const limitRaw = Number(byId("logLimitInput").value || "200");
+  const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.floor(limitRaw) : 200;
+  const runParam = runIndex !== null ? `&run=${runIndex}` : "";
+  try {
+    const payload = await requestJson(`/tasks/${encodeURIComponent(state.detailTaskId)}/logs?cursor=0&limit=${limit}${runParam}`);
+    state.logLines = payload.lines || [];
+    state.logCursor = payload.next_cursor || 0;
+    renderLogs();
+  } catch (err) {
+    showAlert(`Failed to load logs: ${err.message}`, "error");
+  }
+  renderTaskDetail();
 }
 
 async function sendCommand(command, options = {}) {
@@ -535,11 +660,14 @@ function bindEvents() {
     const openTaskId = event.target?.dataset?.openTask;
     if (openTaskId) {
       state.detailTaskId = openTaskId;
+      state.detailTask = null;
+      state.detailRunIndex = null;
       state.logCursor = 0;
       state.logLines = [];
       renderTaskDetail();
       renderLogs();
       switchView("taskDetailView");
+      refreshDetailTask().catch(() => {});
       return;
     }
 
@@ -553,6 +681,18 @@ function bindEvents() {
     const abortTaskId = event.target?.dataset?.abortTask;
     if (abortTaskId) {
       await sendAbortTask(abortTaskId);
+      return;
+    }
+
+    const viewRunStr = event.target?.dataset?.viewRun;
+    if (viewRunStr !== undefined) {
+      await loadRunLogs(parseInt(viewRunStr, 10));
+      return;
+    }
+
+    if (event.target?.id === "viewCurrentRunLogsBtn") {
+      await loadRunLogs(null);
+      return;
     }
   });
 
@@ -573,10 +713,13 @@ function bindEvents() {
       return;
     }
     state.detailTaskId = selected;
+    state.detailTask = null;
+    state.detailRunIndex = null;
     state.logCursor = 0;
     state.logLines = [];
     renderTaskDetail();
     renderLogs();
+    refreshDetailTask().catch(() => {});
   });
 
   byId("clearLogBtn").addEventListener("click", () => {

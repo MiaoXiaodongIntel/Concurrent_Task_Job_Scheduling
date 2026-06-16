@@ -68,15 +68,29 @@ Scope:
 11. `exit_code`: integer or null
 12. `abort_reason`: string or null
 13. `last_output_ts`: timestamp string or null
-14. `log_path`: string or null
+14. `log_path`: string or null (current run's system log path)
+15. `artifact_dir`: string or null (current run's tool artifact directory)
+16. `run_index`: integer (0-based; incremented each rerun)
+17. `run_history`: list of RunRecord — **only present in `GET /tasks/{id}`**; omitted from `GET /tasks` list
+
+RunRecord object (per entry in `run_history`):
+
+1. `run_index`: integer
+2. `started_at`: timestamp string or null
+3. `ended_at`: timestamp string or null
+4. `exit_code`: integer or null
+5. `status`: string (`succeeded`/`failed`/`aborted`)
+6. `log_path`: string or null
+7. `artifact_dir`: string or null
 
 ### 4.3 Log Cursor Model (`GET /tasks/{id}/logs`)
 
 1. `task_id`: string
-2. `cursor`: integer (requested start line)
-3. `next_cursor`: integer (next line index to request)
-4. `eof`: boolean
-5. `lines`: list of strings
+2. `run_index`: integer (the run whose log is being returned)
+3. `cursor`: integer (requested start line)
+4. `next_cursor`: integer (next line index to request)
+5. `eof`: boolean
+6. `lines`: list of strings
 
 ### 4.4 Control Response Model (`POST /control/*`, `POST /tasks/submit`, `POST /tasks/{id}/abort`, `POST /resources`)
 
@@ -110,7 +124,7 @@ Optional fields:
 | `/health` | GET | none | host health model | `404 {"error": ...}` for unknown route |
 | `/tasks` | GET | none | `{ "tasks": Task[] }` | `404 {"error": ...}` for unknown route |
 | `/tasks/{id}` | GET | path `id` | `Task` | `404 {"error": "task not found: <id>"}` |
-| `/tasks/{id}/logs` | GET | query `cursor` (int, default `0`), `limit` (int, default `200`) | log cursor model | `400 {"error": "cursor and limit must be integers"}`; `404 task not found` |
+| `/tasks/{id}/logs` | GET | query `cursor` (int, default `0`), `limit` (int, default `200`), `run` (int, optional — run_index; omit for current run) | log cursor model | `400 {"error": "cursor, limit, and run must be integers"}`; `404 task not found` |
 | `/resources` | GET | none | resource model | `404 {"error": ...}` for unknown route |
 | `/control/start` | POST | empty object or no body | control response | `400` + `accepted=false` and `reason_code` |
 | `/control/graceful-stop` | POST | empty object or no body | control response | `400` + `accepted=false` and `reason_code` |
@@ -219,131 +233,14 @@ UX principles applied:
 5. Dashboard Host Commands panel shows a live host-state badge
 6. Command History (last 20 entries) is visible directly on Dashboard, eliminating the need for a separate Control Panel page
 
-## 10. Page Wireframes (Low Fidelity)
-
-### 10.1 Dashboard
-
-```text
-+--------------------------------------------------------------------------------+
-| WEB TASK HOST                  host_state: RUNNING   Updated 1s ago [Refresh] |
-+----------------------+---------------------------------------------------------+
-| Left Nav             | Summary Cards                                           |
-| - Dashboard (active) | [state][queued][pending][starting][running][completed]   |
-| - Tasks              |                                                         |
-| - Task Detail        | Host Commands  [● RUNNING]                               |
-| - Submit Tasks       | [Start↓] [Graceful Stop] [Force Stop↓] [drain▾] [Shutdown↓] |
-| - Resources          | (disabled+tooltip when precondition not met)            |
-|                      |                                                         |
-|                      | System Resources                                        |
-|                      | CPU / Memory / Disk bars                                |
-|                      |                                                         |
-|                      | Recent Task Changes                                     |
-|                      | (empty state when no tasks: guidance to Submit Tasks)   |
-|                      | task_id | status | resource | started_at | ended_at      |
-|                      |                                                         |
-|                      | Command History (last 20)                               |
-|                      | time | command | accepted | reason_code | message        |
-+----------------------+---------------------------------------------------------+
-```
-
-### 10.2 Tasks List
-
-```text
-+--------------------------------------------------------------------------------+
-| Filters: [status dropdown] [task_id search] [only failed]                      |
-| Actions: [Rerun Selected]                                                      |
-+--------------------------------------------------------------------------------+
-| Select | task_id | resource | priority | status  | pid | started_at | detail  |
-| [ ]    | demo-1  | machine-A| 1        | failed  | 123 | ...        | [open]  |
-| [ ]    | demo-2  | machine-B| 2        | running | 345 | ...        | [open] [Abort] |
-| [ ]    | demo-3  | machine-A| 3        | pending | -   | -          | [open] [Abort] |
-+--------------------------------------------------------------------------------+
-```
-(pending row shows `blocked_by` value in a tooltip or inline badge)
-
-### 10.3 Task Detail + Logs
-
-```text
-+--------------------------------------------------------------------------------+
-| Tasks  ›  demo-1                   (breadcrumb — click "Tasks" to go back)    |
-+--------------------------------------------------------------------------------+
-| Task: demo-1         status: failed      pid: 12345      exit_code: 1          |
-| created_at: ...  started_at: ...  ended_at: ...  log_path: logs/demo-1.log     |
-| [Rerun]  (shown when status is succeeded|failed|aborted)                       |
-| [Abort]  (shown when status is running; disabled otherwise + tooltip)          |
-+--------------------------------------------------------------------------------+
-| Log Controls: [auto refresh on/off] [limit=200] [clear view]                   |
-+--------------------------------------------------------------------------------+
-| 2026-06-13T10:00:00+08:00 [STDOUT] task start                                  |
-| 2026-06-13T10:00:02+08:00 [STDERR] command failed                              |
-| ...                                                                              |
-+--------------------------------------------------------------------------------+
-```
-
-### 10.4 Submit Tasks
-
-```text
-+--------------------------------------------------------------------------------+
-| submit_mode: (o) append   ( ) replace                                          |
-| [Validate Payload] [Submit]                                                     |
-+--------------------------------------------------------------------------------+
-| JSON Editor                                                                      |
-| {                                                                                |
-|   "tasks": [                                                                    |
-|     {"task_id":"demo-1", "commands":["Write-Host 'hello'"]}                |
-|   ]                                                                              |
-| }                                                                                |
-+--------------------------------------------------------------------------------+
-| Validation Result / Submit Response                                              |
-+--------------------------------------------------------------------------------+
-```
-
-### 10.5 Submit Tasks
-
-```text
-+--------------------------------------------------------------------------------+
-| submit_mode: (o) append   ( ) replace                                          |
-| [Load File] [Validate Payload] [Submit]                                        |
-+--------------------------------------------------------------------------------+
-| JSON Editor                                                                      |
-| {                                                                                |
-|   "tasks": [                                                                    |
-|     {"task_id":"demo-1", "commands":["Write-Host 'hello'"]}                |
-|   ]                                                                              |
-| }                                                                                |
-+--------------------------------------------------------------------------------+
-| Validation Result / Submit Response                                              |
-+--------------------------------------------------------------------------------+
-```
-
-_(Control Panel page removed; all host commands consolidated into Dashboard.)_
-
-### 10.5 Resources
-
-```text
-+--------------------------------------------------------------------------------+
-| Resources                                        [Load Resources File]         |
-| (Load Resources button enabled only when host_state=NOT_RUN and not loaded)   |
-+--------------------------------------------------------------------------------+
-| JSON Editor (visible only before load; pre-filled with schema hint)            |
-| { "resources": ["machine-A", "machine-B"] }                                   |
-| [Submit Resource List]                                                         |
-+--------------------------------------------------------------------------------+
-| Resource Status (polled every 1s when tab is active)                           |
-| resource   | status   | held_by   | pending_tasks          |                  |
-| machine-A  | occupied | demo-1    | demo-3 (priority=3)    |                  |
-| machine-B  | free     | -         | -                      |                  |
-+--------------------------------------------------------------------------------+
-```
-
-## 11. Polling and Refresh Plan
+## 10. Polling and Refresh Plan
 
 1. `GET /health`: every 1 second
 2. `GET /tasks`: every 1 to 2 seconds
 3. `GET /tasks/{id}/logs`: every 0.5 to 1 second only when detail page is active
 4. After any successful command submit, trigger immediate `health` and `tasks` refresh
 
-## 12. Open Gaps and Follow-up
+## 11. Open Gaps and Follow-up
 
 1. CORS policy is not specified for browser-hosted frontend.
 2. Authentication and authorization are not yet defined.
@@ -353,7 +250,7 @@ _(Control Panel page removed; all host commands consolidated into Dashboard.)_
 
 ---
 
-## 13. UX Conventions
+## 12. UX Conventions
 
 1. **Unified Dashboard**: Dashboard is the single control hub. Host commands and command history are co-located with status cards and resource meters. The Control Panel page has been eliminated.
 2. **Separation of data entry**: Submit Tasks is the only page with mutable data input (task JSON). All host lifecycle commands remain on Dashboard.
@@ -363,7 +260,3 @@ _(Control Panel page removed; all host commands consolidated into Dashboard.)_
 6. **Host state badge**: The Host Commands panel heading includes a live-updating colored badge showing the current `host_state`.
 7. **Refresh indicator**: The Refresh Now button is accompanied by an "Updated Xs ago" label that updates every second. Clicking the button disables it and changes its label to "Refreshing…" during the request.
 8. **Shutdown mode**: The drain/force mode `<select>` is inline with the Shutdown button in the Host Commands action row.
-
----
-
-Last updated: 2026-06-13

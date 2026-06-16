@@ -28,6 +28,8 @@
 18. [Entry 18 - Host Commands Consolidated into Dashboard](#entry-18)
 19. [Entry 19 - Per-Task User Abort Requirement Added](#entry-19)
 20. [Entry 20 - Remote Resource Conflict Detection Requirement](#entry-20)
+21. [Entry 21 - Per-Run Artifact Directory Requirement and Injection Design](#entry-21)
+22. [Entry 22 - Per-Run Execution History Model](#entry-22)
 ## Change Log Rules
 
 Each entry uses:
@@ -336,4 +338,41 @@ Each entry uses:
   - Aligns task-level and host-level abort semantics: both use the same `aborted` state and rerun recovery path.
   - Fills the operational gap between doing nothing and issuing a full force-stop.
   - Prevents accidental abort from a misclick; consistent with the existing Force Stop confirm dialog pattern.
+
+## Entry 21
+
+- Change summary: Added requirement to associate each task run with its tool-generated artifact output directory, fulfilled via the {ARTIFACT_DIR} command placeholder mechanism.
+- Entry type: Requirement Change
+- Original design -> New design:
+  - Original: Task execution produced no record of tool-generated output directories; when multiple concurrent sessions wrote to the same working directory (e.g. `kayak_submit`), there was no way to trace which directory belonged to which task or run attempt; supporting tool-specific output flags (e.g. Kayak's `--log-dir`) would require host-level knowledge of individual tool CLI syntax.
+  - New:
+    - Each task run tracks an `artifact_dir` field that records the tool-generated output location; the association is established at execution start and preserved in the per-run history for all past attempts.
+    - Task commands may contain the literal placeholder `{ARTIFACT_DIR}`; `_start_task()` computes `<artifact_base_dir>/<task_id>/run_<N>/`, creates the directory, and substitutes the placeholder before spawning the subprocess.
+    - Directory creation and substitution are triggered only when at least one command in the task actually contains `{ARTIFACT_DIR}`; tasks without the placeholder are entirely unaffected.
+    - `--artifact-base-dir` (default: `task_artifacts`) configures the root location; the host holds no knowledge of any specific tool name or flag — tool-specific CLI syntax lives entirely in the task definition.
+- Why improved:
+  - Enables operators to navigate directly from a task session to its output artifacts without manual filesystem searching.
+  - Makes multi-session concurrent runs unambiguous: each run's artifact location is uniquely identified by `task_id` and `run_index`.
+  - Maintains a clean boundary: task definitions own tool-specific concerns; the host framework owns per-run directory lifecycle.
+  - Enables any future tool with an output directory argument to opt in by adding `{ARTIFACT_DIR}` to its command, with zero host code changes.
+
+## Entry 22
+
+- Change summary: Introduced per-run execution history model with RunRecord; rerun now archives past runs instead of discarding them.
+- Entry type: Design Modification
+- Original design -> New design:
+  - Original: `TaskJob` held a single flat set of run metadata (`started_at`, `ended_at`, `exit_code`, `log_path`); `rerun()` cleared all fields unconditionally; system logs were written to `logs/<task_id>.log` with append semantics, mixing runs in one file; task detail API and log API had no concept of run index.
+  - New:
+    - `RunRecord` dataclass captures a completed-run snapshot: `run_index`, `started_at`, `ended_at`, `exit_code`, `status`, `log_path`, `artifact_dir`; provides `to_dict()` / `from_dict()` as the stable data contract.
+    - `TaskJob` gains `run_index: int` (0-based, incremented on each rerun) and `run_history: list[RunRecord]`.
+    - `rerun()` archives current run into `run_history` and increments `run_index` before resetting live fields.
+    - System log files are isolated per run: `logs/<task_id>/run_<N>.log`.
+    - `to_dict(include_history=True)` is used by the single-task detail endpoint; list snapshot omits history to keep response size small.
+    - `read_task_logs(run_index=N)` reads the system log of a specific historical run.
+    - Web GUI Task Detail renders a collapsible Run History table; each historical row includes status, exit code, timestamps, artifact dir, and a "View Logs" button that switches the log viewer to that run's log file.
+- Why improved:
+  - Retains full operational context across rerun attempts without requiring external storage.
+  - Isolates log files per run, preventing output from different attempts from being interleaved.
+  - Clean `to_dict` / `from_dict` contract makes future migration to a persistent store a localized change.
+
 

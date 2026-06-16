@@ -159,15 +159,72 @@ stateDiagram-v2
     SHUTTING_DOWN --> [*] : host loop exits
 ```
 
-## 4. Data Ownership
+## 4. Data Model
+
+### 4.1 TaskJob Fields
+
+Each `TaskJob` instance holds the following fields:
+
+| Field | Type | Notes |
+|---|---|---|
+| `task_id` | string | unique per host session |
+| `commands` | list[str] | original command list; may contain `{ARTIFACT_DIR}` |
+| `resource` | string | registered remote machine identifier |
+| `priority` | int | positive integer, lower = higher priority |
+| `status` | TaskStatus | current lifecycle state |
+| `created_at` | ISO timestamp | set at object creation |
+| `started_at` | ISO timestamp \| null | set when task enters `starting` |
+| `ended_at` | ISO timestamp \| null | set when task enters any terminal/aborted state |
+| `pid` | int \| null | subprocess PID, set after process spawn |
+| `exit_code` | int \| null | process exit code |
+| `abort_reason` | string \| null | human-readable abort cause |
+| `last_output_ts` | ISO timestamp \| null | updated on each stdout/stderr line |
+| `log_path` | string \| null | current run's system log path (`logs/<task_id>/run_<N>.log`) |
+| `artifact_dir` | string \| null | current run's tool artifact directory (expanded from `{ARTIFACT_DIR}`) |
+| `blocked_by` | string \| null | task_id holding the resource when `status=pending` |
+| `run_index` | int | 0-based; incremented each time `rerun` is issued |
+| `run_history` | list[RunRecord] | archived snapshots of all past completed runs |
+
+### 4.2 RunRecord Fields
+
+`RunRecord` is an immutable snapshot of one completed execution, appended to `run_history` during `rerun`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `run_index` | int | which run this snapshot represents |
+| `started_at` | ISO timestamp \| null | |
+| `ended_at` | ISO timestamp \| null | |
+| `exit_code` | int \| null | |
+| `status` | string | terminal status value: `succeeded` / `failed` / `aborted` |
+| `log_path` | string \| null | system log for this run (`logs/<task_id>/run_<N>.log`) |
+| `artifact_dir` | string \| null | tool artifact directory for this run |
+
+`RunRecord` provides `to_dict()` / `from_dict()` as the stable data contract for serialization and future persistence.
+
+### 4.3 Rerun Archiving Behavior
+
+When `rerun()` is accepted for a task:
+
+1. Current run metadata (`started_at`, `ended_at`, `exit_code`, `status`, `log_path`, `artifact_dir`) is snapshotted into a new `RunRecord` and appended to `run_history`.
+2. `run_index` is incremented.
+3. Live fields (`started_at`, `ended_at`, `pid`, `exit_code`, `abort_reason`, `last_output_ts`, `log_path`, `artifact_dir`) are cleared.
+4. Task status transitions to `queued`.
+
+### 4.4 Per-Run Log and Artifact Paths
+
+System logs are isolated per run: `logs/<task_id>/run_<N>.log` (where N = `run_index` at the time of execution). Previous runs' logs are accessible via `RunRecord.log_path` in `run_history`.
+
+Artifact directory is only created when the task's commands contain the `{ARTIFACT_DIR}` placeholder AND `artifact_base_dir` is configured. Path: `<artifact_base_dir>/<task_id>/run_<N>/`. Commands without the placeholder are unaffected.
+
+## 5. Data Ownership
 
 TaskManager owns:
 
-1. full `TaskJob` snapshots (including `resource`, `priority`, `blocked_by` fields)
+1. full `TaskJob` snapshots (including `resource`, `priority`, `blocked_by`, `run_index`, `run_history`, `artifact_dir` fields)
 2. queue/pending/running/completed counters
 3. task-to-process mapping for active jobs
 4. runtime timestamps for status and output activity
-5. per-task log file path
+5. per-run system log file path and artifact directory
 6. runtime task submission acceptance (`append|replace`, replace rejected when in-flight or pending tasks exist)
 7. shutdown progression metadata (mode/timeout escalation state)
 8. resource registry: `registered_resources: list[str]` (loaded once from config, immutable after loading)

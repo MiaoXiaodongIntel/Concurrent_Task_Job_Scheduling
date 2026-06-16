@@ -30,10 +30,11 @@ Current arguments:
 7. `--scheduler-tick` (default: `0.5`)
 8. `--status-interval` (default: `2.0`)
 9. `--log-dir` (default: `logs`)
-10. `--summary-json` (optional)
-11. `--monitor-host` (default: `127.0.0.1`)
-12. `--monitor-port` (default: `8765`)
-13. `--interactive-cli` (optional, default: `false`)
+10. `--artifact-base-dir` (default: `task_artifacts`)
+11. `--summary-json` (optional)
+12. `--monitor-host` (default: `127.0.0.1`)
+13. `--monitor-port` (default: `8765`)
+14. `--interactive-cli` (optional, default: `false`)
 
 CLI validation rules:
 
@@ -41,12 +42,13 @@ CLI validation rules:
 2. If `--tasks-file` is omitted, `--resources-file` may also be omitted; resources are loaded later via `POST /resources`.
 3. Threshold parameters are normalized to `1.0..100.0` range by Scheduler.
 4. `--max-concurrency` has no default; when omitted, the Scheduler applies no concurrency cap and admission is governed solely by the CPU/memory/disk host thresholds.
+5. `--artifact-base-dir` defaults to `task_artifacts` (relative path resolved from CWD). The directory is only created for a specific task run when that task's commands contain the `{ARTIFACT_DIR}` placeholder; tasks without the placeholder are entirely unaffected.
 
 Startup mode contract:
 
 1. Host always enters `NOT_RUN` after initialization and waits for explicit start command.
 2. Control channel default is Monitor API; interactive stdin command loop is enabled only when `--interactive-cli` is set.
-3. Execution-round completion does not terminate host process; host transitions to `IDLE` and waits for new control requests.
+3. Execution-round completion does not terminate host process; host remains in `RUNNING` and waits for new control requests.
 
 ## 3. Task Definition Contract
 
