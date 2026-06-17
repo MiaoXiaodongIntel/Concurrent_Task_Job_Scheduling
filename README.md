@@ -1,5 +1,37 @@
 # Concurrent Task Job Scheduling
 
+## Quick Start (Config-Pool Mode)
+
+Start host with task file + resource registry:
+
+```powershell
+.venv\Scripts\python.exe core\task_host.py \
+	--tasks-file tests\fixtures\sample_tasks.json \
+	--registry-file tests\fixtures\sample_resource_registry.json
+```
+
+Control and observe through Monitor API:
+
+- `POST /control/start`
+- `POST /control/graceful-stop`
+- `POST /control/force-stop`
+- `POST /control/shutdown`
+- `GET /health`
+- `GET /tasks`
+
+## Test Commands
+
+```powershell
+# unit
+.venv\Scripts\python.exe -m pytest tests\unit -v
+
+# e2e
+.venv\Scripts\python.exe -m pytest tests\e2e -v
+
+# all
+.venv\Scripts\python.exe -m pytest -v
+```
+
 ## Design Documentation Navigation
 
 ### Architecture Overview

@@ -15,10 +15,8 @@ Implementation file: [../core/scheduler.py](../core/scheduler.py)
 3. `host_running: bool` (`true` only when host state is `RUNNING`)
 4. `is_runnable: Callable[[str], bool]`
 5. `get_resource_usage: Callable[[], ResourceUsage | None]` (optional, provided by TaskManager), including `cpu_percent`, `memory_percent`, and `disk_active_percent`
-6. `get_task_resource: Callable[[str], str]` (optional, legacy path) — returns the `resource` identifier for a given task_id
-7. `is_resource_free: Callable[[str], bool]` (optional, legacy path) — returns `True` when the given resource is not held by any `starting` or `running` task
-8. `get_task_config: Callable[[str], int]` (optional, config-pool path) — returns `config_id` for a given task_id (`0` means not using config pool)
-9. `pick_free_resource: Callable[[int, set[str]], str | None]` (optional, config-pool path) — picks one available resource name from the target config pool
+6. `get_task_config: Callable[[str], int]` — returns `config_id` for a given task_id
+7. `pick_free_resource: Callable[[int, set[str]], str | None]` — picks one available resource name from the target config pool
 
 ## 3. Outputs
 
@@ -34,19 +32,15 @@ Implementation file: [../core/scheduler.py](../core/scheduler.py)
 4. Iterate queue in order (queue is pre-sorted by TaskManager in priority order):
    a. Pop next task_id.
    b. Check `is_runnable`: if `False`, skip (do not count against slots, do not pending).
-   c. If config-pool callbacks are present and `config_id > 0`, call `pick_free_resource(config_id, claimed_in_tick)`:
+   c. Call `pick_free_resource(config_id, claimed_in_tick)` for the task's `config_id`:
       - resource chosen: append `(task_id, assigned_resource)` to `to_start`, decrement `available_slots`.
-      - no resource chosen: append task_id to `to_pending` (does **not** consume a slot).
-      - then continue to next candidate (skip legacy path for this task).
-   d. Otherwise use legacy resource path (`get_task_resource` + `is_resource_free`):
-      - free: append `(task_id, resource)` to `to_start`, decrement `available_slots`.
-      - occupied: append task_id to `to_pending` (does **not** consume a slot).
-   e. Continue until `available_slots == 0` **or** queue is exhausted.
+      - no resource chosen (pool exhausted): append task_id to `to_pending` (does **not** consume a slot).
+   d. Continue until `available_slots == 0` **or** queue is exhausted.
 5. Return `(to_start, to_pending)`.
 
 Key behavioral properties:
 - Resource conflict does **not** block slots: a pending task frees the slot for the next task (Decision H).
-- Scheduler maintains `claimed_in_tick` to prevent same-tick double assignment in both config-pool and legacy paths.
+- Scheduler maintains `claimed_in_tick` to prevent same-tick double assignment.
 
 ## 5. Side Effects and Constraints
 

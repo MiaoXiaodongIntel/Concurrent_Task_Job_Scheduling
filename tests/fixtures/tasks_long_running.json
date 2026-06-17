@@ -2,7 +2,7 @@
   "tasks": [
     {
       "task_id": "long-1",
-      "resource": "machine-A",
+      "config_id": 1,
       "priority": 1,
       "commands": [
         "Write-Host 'long-1 start'",

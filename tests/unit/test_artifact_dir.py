@@ -32,13 +32,14 @@ from task_manager import HostState, TaskJob, TaskManager, TaskStatus
 def _make_task(
     task_id: str = "t1",
     commands: list[str] | None = None,
-    resource: str = "machine-A",
+    config_id: int = 1,
     priority: int = 1,
 ) -> TaskJob:
     return TaskJob(
         task_id=task_id,
         commands=commands or ["echo hi"],
-        resource=resource,
+        resource="",
+        config_id=config_id,
         priority=priority,
     )
 
@@ -58,6 +59,27 @@ def _make_manager(
         max_disk_active_percent=99.0,
     )
     runner = MagicMock(spec=TaskRunner)
+    class _Cfg:
+        def __init__(self, cid: int) -> None:
+            self.id = cid
+            self.name = f"cfg-{cid}"
+
+    class _Res:
+        def __init__(self, rid: int, name: str, config_id: int) -> None:
+            self.id = rid
+            self.name = name
+            self.config_id = config_id
+            self.properties = {}
+
+    class _Registry:
+        pass
+
+    reg = _Registry()
+    reg.configs = {1: _Cfg(1)}
+    reg.resources = {1: _Res(1, "machine-A", 1)}
+    reg.resource_name_index = {"machine-A": 1}
+    reg.resources_by_config = {1: [1]}
+
     return TaskManager(
         tasks=tasks or [],
         scheduler=scheduler,
@@ -67,6 +89,7 @@ def _make_manager(
         scheduler_tick=1.0,
         status_interval=60.0,
         registered_resources=["machine-A"],
+        resource_registry=reg,
     )
 
 

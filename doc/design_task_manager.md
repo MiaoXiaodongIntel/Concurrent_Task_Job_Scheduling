@@ -63,7 +63,7 @@ Baseline transitions:
 
 1. `queued -> starting` (condition: host in `RUNNING` state, resource is free)
 2. `queued -> pending` (condition: host in `RUNNING` state, resource is occupied)
-3. `pending -> queued` (automatic: resource released; highest-priority waiter for same `config_id` is preferred, with legacy resource-based fallback)
+3. `pending -> queued` (automatic: resource released; highest-priority waiter for same `config_id` is promoted)
 4. `pending -> aborted` (force-stop path or per-task abort_task path)
 5. `starting -> running|failed`
 6. `running -> succeeded|failed`
@@ -98,9 +98,7 @@ stateDiagram-v2
 ### 2.3 Queue Ordering and Priority
 
 1. Each task has a mandatory `priority: int` field (positive integer; lower value = higher priority).
-2. Each task uses one resource-targeting mode:
-    - legacy mode: `resource: str` (remote machine identifier, case-sensitive, must match a registered resource)
-    - pool mode: `config_id: int` (positive integer, scheduler chooses a concrete `assigned_resource` at dispatch time)
+2. Each task declares `config_id: int` (positive integer); the scheduler chooses a concrete `assigned_resource` from that config pool at dispatch time.
 3. The internal queue is maintained in sorted order: ascending by `(priority, created_at)`.
 4. Initial load and `append` submissions insert tasks at the correct position by (priority, created_at) — stable sort.
 5. `rerun` appends tasks to the tail of the queue, sorted among themselves by (priority, created_at) — they do not jump ahead of waiting queued tasks.
@@ -110,10 +108,9 @@ stateDiagram-v2
 
 1. Resource lock is written when a task enters `starting` — keyed by concrete assigned resource (`assigned_resource` in pool mode, otherwise `resource`). This ensures the Scheduler sees the lock in the same tick and prevents double admission.
 2. Resource lock is released when a task enters any terminal state (`succeeded`, `failed`, `aborted`) or when force-stop clears the lock table.
-3. After resource release, TaskManager first tries to promote the single highest-priority pending task waiting on the same `config_id` (when registry mapping is available); if none exists, it falls back to legacy per-resource pending promotion. Legacy per-resource tie-breaking keeps random selection among equal-priority front candidates.
+3. After resource release, TaskManager promotes the single highest-priority pending task waiting on the same `config_id`.
 4. Lock table: `resource_lock: dict[str, str]` mapping `resource_id -> task_id`.
-5. Pending index: `pending_by_resource: dict[str, list[str]]` mapping `resource_id -> [task_id, ...]` sorted by (priority, created_at).
-6. Pending index (pool mode): `pending_by_config: dict[int, list[str]]` mapping `config_id -> [task_id, ...]` sorted by (priority, created_at).
+5. Pending index: `pending_by_config: dict[int, list[str]]` mapping `config_id -> [task_id, ...]` sorted by (priority, created_at).
 
 ## 3. Host Lifecycle Model
 

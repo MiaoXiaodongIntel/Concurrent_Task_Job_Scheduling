@@ -2,7 +2,7 @@
   "tasks": [
     {
       "task_id": "fail-1",
-      "resource": "machine-A",
+      "config_id": 1,
       "priority": 1,
       "commands": [
         "Write-Host 'fail-1 start'",

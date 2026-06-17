@@ -126,7 +126,7 @@ def test_pool_claimed_in_tick_prevents_double_assign():
     assert to_pending == ["task-B", "task-C"]
 
 
-def test_pool_fallback_to_old_path_when_no_config_callback():
+def test_pool_zero_or_missing_config_id_goes_pending():
     sched = _make_scheduler(max_concurrency=2)
     queue = ["t1", "t2"]
 
@@ -136,32 +136,10 @@ def test_pool_fallback_to_old_path_when_no_config_callback():
         host_running=True,
         is_runnable=_always_runnable,
         get_resource_usage=_no_resources,
-        get_task_resource=lambda task_id: f"machine-{task_id}",
-        is_resource_free=lambda resource: resource != "machine-t1",
-        # no get_task_config/pick_free_resource -> old path
+        get_task_config=lambda task_id: 0 if task_id == "t1" else 2,
+        pick_free_resource=lambda config_id, claimed: "resource-from-pool" if config_id == 2 else None,
     )
 
     assert _ids(to_start) == ["t2"]
-    assert _assigned(to_start) == ["machine-t2"]
+    assert _assigned(to_start) == ["resource-from-pool"]
     assert to_pending == ["t1"]
-
-
-def test_pool_zero_config_id_falls_back_to_old_path():
-    sched = _make_scheduler(max_concurrency=2)
-    queue = ["t1"]
-
-    to_start, to_pending = sched.pick_next_tasks(
-        queue=queue,
-        running_count=0,
-        host_running=True,
-        is_runnable=_always_runnable,
-        get_resource_usage=_no_resources,
-        get_task_resource=lambda task_id: "machine-t1",
-        is_resource_free=lambda resource: True,
-        get_task_config=lambda task_id: 0,
-        pick_free_resource=lambda config_id, claimed: "resource-from-pool",
-    )
-
-    assert _ids(to_start) == ["t1"]
-    assert _assigned(to_start) == ["machine-t1"]
-    assert to_pending == []

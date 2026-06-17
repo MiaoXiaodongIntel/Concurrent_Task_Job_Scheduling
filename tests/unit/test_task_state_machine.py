@@ -26,8 +26,8 @@ from task_manager import HostState, TaskJob, TaskManager, TaskStatus
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_task(task_id: str = "t1", resource: str = "machine-A", priority: int = 1) -> TaskJob:
-    return TaskJob(task_id=task_id, commands=["echo hi"], resource=resource, priority=priority)
+def _make_task(task_id: str = "t1", config_id: int = 1, priority: int = 1) -> TaskJob:
+    return TaskJob(task_id=task_id, commands=["echo hi"], resource="", config_id=config_id, priority=priority)
 
 
 def _make_manager(tmp_path: Path, tasks: list[TaskJob] | None = None) -> TaskManager:
@@ -41,6 +41,27 @@ def _make_manager(tmp_path: Path, tasks: list[TaskJob] | None = None) -> TaskMan
         max_disk_active_percent=99.0,
     )
     runner = MagicMock(spec=TaskRunner)
+    class _Cfg:
+        def __init__(self, cid: int) -> None:
+            self.id = cid
+            self.name = f"cfg-{cid}"
+
+    class _Res:
+        def __init__(self, rid: int, name: str, config_id: int) -> None:
+            self.id = rid
+            self.name = name
+            self.config_id = config_id
+            self.properties = {}
+
+    class _Registry:
+        pass
+
+    reg = _Registry()
+    reg.configs = {1: _Cfg(1), 2: _Cfg(2)}
+    reg.resources = {1: _Res(1, "machine-A", 1), 2: _Res(2, "machine-B", 2)}
+    reg.resource_name_index = {"machine-A": 1, "machine-B": 2}
+    reg.resources_by_config = {1: [1], 2: [2]}
+
     return TaskManager(
         tasks=tasks or [],
         scheduler=scheduler,
@@ -49,6 +70,7 @@ def _make_manager(tmp_path: Path, tasks: list[TaskJob] | None = None) -> TaskMan
         scheduler_tick=1.0,
         status_interval=60.0,
         registered_resources=["machine-A", "machine-B"],
+        resource_registry=reg,
     )
 
 
@@ -71,7 +93,8 @@ def _inject_starting_task(manager: TaskManager, task: TaskJob) -> None:
     with manager._lock:
         manager.tasks[task.task_id] = task
         task.status = TaskStatus.STARTING
-        manager._resource_lock[task.resource] = task.task_id
+        task.assigned_resource = "machine-A"
+        manager._resource_lock[task.assigned_resource] = task.task_id
         if task.task_id in manager.queue:
             manager.queue.remove(task.task_id)
 
@@ -106,13 +129,13 @@ def test_spawn_failure_releases_resource_lock(tmp_path):
 
     manager._try_schedule()
 
-    assert task.resource not in manager._resource_lock
+    assert task.assigned_resource not in manager._resource_lock
 
 
 def test_spawn_failure_wakes_pending_task(tmp_path):
     """A pending task blocked on the spawn-failed resource must be promoted to queued."""
-    t_fail = _make_task("t-fail", resource="machine-A", priority=1)
-    t_wait = _make_task("t-wait", resource="machine-A", priority=2)
+    t_fail = _make_task("t-fail", config_id=1, priority=1)
+    t_wait = _make_task("t-wait", config_id=1, priority=2)
     manager = _make_manager(tmp_path, [t_fail])
     manager.runner.start_task.side_effect = OSError("command not found")
 
@@ -121,7 +144,7 @@ def test_spawn_failure_wakes_pending_task(tmp_path):
         manager.tasks["t-wait"] = t_wait
         t_wait.status = TaskStatus.PENDING
         t_wait.blocked_by = "t-fail"
-        manager._insert_pending_sorted("machine-A", "t-wait")
+        manager._insert_pending_by_config_sorted(1, "t-wait")
         manager.host_state = HostState.RUNNING
 
     manager._try_schedule()
@@ -306,8 +329,8 @@ def test_rerun_rejected_for_unknown_task_id(tmp_path):
 
 def test_rerun_partial_accept_and_reject(tmp_path):
     """rerun() with mixed list: terminal tasks accepted, non-terminal tasks rejected."""
-    t_done = _make_task("t-done", resource="machine-A")
-    t_running = _make_task("t-running", resource="machine-B")
+    t_done = _make_task("t-done", config_id=1)
+    t_running = _make_task("t-running", config_id=2)
     manager = _make_manager(tmp_path)
     _inject_terminal_task(manager, t_done, TaskStatus.SUCCEEDED)
     proc = MagicMock()

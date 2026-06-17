@@ -38,8 +38,6 @@ class Scheduler:
         host_running: bool,
         is_runnable: Callable[[str], bool],
         get_resource_usage: Callable[[], ResourceUsage | None] | None = None,
-        get_task_resource: Callable[[str], str] | None = None,
-        is_resource_free: Callable[[str], bool] | None = None,
         get_task_config: Callable[[str], int] | None = None,
         pick_free_resource: Callable[[int, set[str]], str | None] | None = None,
     ) -> tuple[list[tuple[str, str]], list[str]]:
@@ -87,34 +85,24 @@ class Scheduler:
 
             resource_for_task = ""
 
-            # New path: config-pool dispatch. If config_id is non-zero and a free
-            # resource can be chosen from the pool, admit with the chosen resource.
-            # If no free resource exists, move to pending without consuming a slot.
-            if get_task_config is not None and pick_free_resource is not None:
-                config_id = get_task_config(next_id)
-                if config_id:
-                    picked = pick_free_resource(config_id, claimed_in_tick)
-                    if picked is None:
-                        to_pending.append(next_id)
-                        continue
-                    resource_for_task = picked
-                    claimed_in_tick.add(resource_for_task)
-                    to_start.append((next_id, resource_for_task))
-                    if available_slots is not None:
-                        available_slots -= 1
-                        if available_slots <= 0:
-                            break
-                    continue
+            # Config-pool dispatch: config_id must resolve to one concrete
+            # free resource per admitted task.
+            if get_task_config is None or pick_free_resource is None:
+                to_pending.append(next_id)
+                continue
 
-            # Old path: one task bound to one specific resource.
-            if get_task_resource is not None and is_resource_free is not None:
-                resource = get_task_resource(next_id)
-                resource_for_task = resource
-                if resource in claimed_in_tick or not is_resource_free(resource):
-                    # Resource conflict: send to pending, do NOT consume a slot.
-                    to_pending.append(next_id)
-                    continue
-                claimed_in_tick.add(resource)
+            config_id = get_task_config(next_id)
+            if config_id <= 0:
+                to_pending.append(next_id)
+                continue
+
+            picked = pick_free_resource(config_id, claimed_in_tick)
+            if picked is None:
+                to_pending.append(next_id)
+                continue
+
+            resource_for_task = picked
+            claimed_in_tick.add(resource_for_task)
 
             to_start.append((next_id, resource_for_task))
             if available_slots is not None:

@@ -26,7 +26,7 @@ from conftest import (
 )
 
 SAMPLE = FIXTURES / "sample_tasks.json"
-SAMPLE_RESOURCES = FIXTURES / "sample_resources.json"
+SAMPLE_REGISTRY = FIXTURES / "sample_resource_registry.json"
 LONG_RUNNING = FIXTURES / "tasks_long_running.json"
 FAILING = FIXTURES / "tasks_failing.json"
 
@@ -46,7 +46,7 @@ def test_graceful_stop_drains_and_returns_not_run() -> None:
       5. Force-stop to accelerate cleanup (avoids 30 s wait).
       6. Wait for host to reach NOT_RUN.
     """
-    with HostProcess(tasks_file=LONG_RUNNING, resources_file=SAMPLE_RESOURCES, max_concurrency=1) as port:
+    with HostProcess(tasks_file=LONG_RUNNING, registry_file=SAMPLE_REGISTRY, max_concurrency=1) as port:
         assert wait_for_server(port), "FAIL: host did not start"
 
         start_result = http_post(port, "/control/start")
@@ -90,7 +90,7 @@ def test_force_stop_aborts_running_tasks_and_returns_not_run() -> None:
       3. Send force-stop; verify host reaches NOT_RUN.
       4. Verify all tasks are ABORTED.
     """
-    with HostProcess(tasks_file=LONG_RUNNING, resources_file=SAMPLE_RESOURCES, max_concurrency=1) as port:
+    with HostProcess(tasks_file=LONG_RUNNING, registry_file=SAMPLE_REGISTRY, max_concurrency=1) as port:
         assert wait_for_server(port), "FAIL: host did not start"
 
         start_result = http_post(port, "/control/start")
@@ -124,7 +124,7 @@ def test_rerun_succeeded_task_reruns_and_succeeds() -> None:
       2. Send rerun for all task_ids.
       3. Wait for all tasks to succeed again.
     """
-    with HostProcess(tasks_file=SAMPLE, resources_file=SAMPLE_RESOURCES, max_concurrency=2) as port:
+    with HostProcess(tasks_file=SAMPLE, registry_file=SAMPLE_REGISTRY, max_concurrency=2) as port:
         assert wait_for_server(port), "FAIL: host did not start"
 
         start_result = http_post(port, "/control/start")
@@ -162,7 +162,7 @@ def test_failing_task_transitions_to_failed() -> None:
       2. Wait for task to reach a terminal state.
       3. Verify status == failed and exit_code != 0.
     """
-    with HostProcess(tasks_file=FAILING, resources_file=SAMPLE_RESOURCES, max_concurrency=1) as port:
+    with HostProcess(tasks_file=FAILING, registry_file=SAMPLE_REGISTRY, max_concurrency=1) as port:
         assert wait_for_server(port), "FAIL: host did not start"
 
         start_result = http_post(port, "/control/start")

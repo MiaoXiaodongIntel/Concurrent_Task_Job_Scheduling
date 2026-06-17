@@ -26,7 +26,6 @@ from task_runner import TaskRunner
 
 def load_tasks(
     tasks_file: Path,
-    registered_resources: set[str] | None = None,
     registered_config_ids: set[int] | None = None,
 ) -> list[TaskJob]:
     raw = json.loads(tasks_file.read_text(encoding="utf-8"))
@@ -63,9 +62,6 @@ def load_tasks(
                 raise ValueError(f"task {task_id} has invalid command: {command!r}")
             commands.append(command)
 
-        resource_raw = item.get("resource", "")
-        resource = resource_raw.strip() if isinstance(resource_raw, str) else ""
-
         config_id_raw = item.get("config_id", 0)
         config_id = 0
         if config_id_raw not in (None, ""):
@@ -73,21 +69,13 @@ def load_tasks(
                 config_id = int(config_id_raw)  # type: ignore[arg-type]
             except (TypeError, ValueError) as exc:
                 raise ValueError(f"task {task_id} has invalid config_id: {config_id_raw!r}") from exc
-            if config_id < 0:
+            if config_id <= 0:
                 raise ValueError(f"task {task_id} has non-positive config_id: {config_id}")
 
-        if config_id > 0:
-            if registered_config_ids is not None and config_id not in registered_config_ids:
-                raise ValueError(f"task {task_id} references unregistered config_id: {config_id}")
-        else:
-            if not resource:
-                raise ValueError(
-                    f"task {task_id} must have either a non-empty 'resource' string field or a positive 'config_id'"
-                )
-            if registered_resources is not None and resource not in registered_resources:
-                raise ValueError(
-                    f"task {task_id} references unregistered resource: {resource!r}"
-                )
+        if config_id <= 0:
+            raise ValueError(f"task {task_id} must include a positive 'config_id'")
+        if registered_config_ids is not None and config_id not in registered_config_ids:
+            raise ValueError(f"task {task_id} references unregistered config_id: {config_id}")
 
         priority_raw = item.get("priority")
         if priority_raw is None:
@@ -105,7 +93,7 @@ def load_tasks(
             TaskJob(
                 task_id=task_id,
                 commands=commands,
-                resource=resource,
+                resource="",
                 config_id=config_id,
                 priority=priority,
             )
@@ -114,25 +102,6 @@ def load_tasks(
     if not tasks:
         raise ValueError("No tasks found in tasks file")
     return tasks
-
-
-def load_resources_file(resources_file: Path) -> list[str]:
-    raw = json.loads(resources_file.read_text(encoding="utf-8"))
-    if not isinstance(raw, dict) or not isinstance(raw.get("resources"), list):
-        raise ValueError("resources file must be an object containing a 'resources' list")
-    resources_raw = raw["resources"]
-    if not resources_raw:
-        raise ValueError("resources list must not be empty")
-    result: list[str] = []
-    seen: set[str] = set()
-    for r in resources_raw:
-        if not isinstance(r, str) or not r.strip():
-            raise ValueError(f"resource entry is not a non-empty string: {r!r}")
-        if r not in seen:
-            seen.add(r)
-            result.append(r)
-    return result
-
 
 def _build_config_name_fetcher() -> Callable[[int], str]:
     """Build a config-name fetcher with local fallback when HSD is unavailable."""
@@ -183,11 +152,6 @@ def parse_args() -> argparse.Namespace:
         "--tasks-file",
         default="",
         help="Optional path to JSON task definition file. If omitted, host starts with empty tasks and waits for submit.",
-    )
-    parser.add_argument(
-        "--resources-file",
-        default="",
-        help="Path to JSON resource definition file. Required when --tasks-file is provided.",
     )
     parser.add_argument(
         "--registry-file",
@@ -330,24 +294,15 @@ def main() -> int:
     log_dir = Path(args.log_dir).resolve()
     artifact_base_dir = Path(args.artifact_base_dir).resolve()
 
-    registered_resources: list[str] = []
     resource_registry: ResourceRegistry | None = None
     tasks: list[TaskJob] = []
 
-    if args.tasks_file and not args.resources_file and not args.registry_file:
+    if args.tasks_file and not args.registry_file:
         print(
-            "Error: either --resources-file or --registry-file is required when --tasks-file is provided.",
+            "Error: --registry-file is required when --tasks-file is provided.",
             file=sys.stderr,
         )
         return 2
-
-    if args.resources_file:
-        resources_file = Path(args.resources_file).resolve()
-        try:
-            registered_resources = load_resources_file(resources_file)
-        except (OSError, ValueError, json.JSONDecodeError) as exc:
-            print(f"Failed to load resources file: {exc}", file=sys.stderr)
-            return 2
 
     if args.registry_file:
         registry_file = Path(args.registry_file).resolve()
@@ -365,7 +320,6 @@ def main() -> int:
         try:
             tasks = load_tasks(
                 tasks_file,
-                registered_resources=set(registered_resources) if registered_resources else None,
                 registered_config_ids=(set(resource_registry.configs.keys()) if resource_registry else None),
             )
         except (OSError, ValueError, json.JSONDecodeError) as exc:
@@ -387,7 +341,7 @@ def main() -> int:
         artifact_base_dir=artifact_base_dir,
         scheduler_tick=args.scheduler_tick,
         status_interval=args.status_interval,
-        registered_resources=registered_resources if registered_resources else None,
+        registered_resources=[r.name for r in resource_registry.resources.values()] if resource_registry else None,
         resource_registry=resource_registry,
     )
 

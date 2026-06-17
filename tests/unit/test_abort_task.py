@@ -23,8 +23,8 @@ from task_manager import HostState, TaskJob, TaskManager, TaskStatus
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_task(task_id: str = "t1", resource: str = "machine-A", priority: int = 1) -> TaskJob:
-    return TaskJob(task_id=task_id, commands=["echo hi"], resource=resource, priority=priority)
+def _make_task(task_id: str = "t1", config_id: int = 1, priority: int = 1) -> TaskJob:
+    return TaskJob(task_id=task_id, commands=["echo hi"], resource="", config_id=config_id, priority=priority)
 
 
 def _make_manager(tmp_path: Path, tasks: list[TaskJob] | None = None,
@@ -75,7 +75,7 @@ def _add_pending_task(manager: TaskManager, task: TaskJob, blocked_by: str = "ot
         manager.tasks[task.task_id] = task
         task.status = TaskStatus.PENDING
         task.blocked_by = blocked_by
-        pending_list = manager._pending_by_resource.setdefault(task.resource, [])
+        pending_list = manager._pending_by_config.setdefault(task.config_id, [])
         pending_list.append(task.task_id)
 
 
@@ -122,7 +122,7 @@ def test_abort_pending_task_accepted(tmp_path):
     assert task.status == TaskStatus.ABORTED
     assert task.abort_reason == "user_abort"
     assert task.blocked_by is None
-    assert task.task_id not in manager._pending_by_resource.get("machine-A", [])
+    assert task.task_id not in manager._pending_by_config.get(1, [])
 
 
 def test_abort_pending_task_no_process_terminate(tmp_path):
@@ -176,8 +176,8 @@ def test_abort_task_does_not_change_host_state(tmp_path):
 
 def test_abort_task_sibling_unaffected(tmp_path):
     """Aborting one task must not change the status of other tasks."""
-    t1 = _make_task("t1", "machine-A", 1)
-    t2 = _make_task("t2", "machine-B", 2)
+    t1 = _make_task("t1", 1, 1)
+    t2 = _make_task("t2", 2, 2)
     manager = _make_manager(tmp_path, [t1, t2])
     _add_running_task(manager, t1)
     # t2 stays QUEUED

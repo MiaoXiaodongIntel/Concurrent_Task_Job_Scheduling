@@ -37,6 +37,7 @@
 27. [Entry 27 - Resource Pool Scheduling Model](#entry-27)
 28. [Entry 28 - Execution Path Guardrails and Validation](#entry-28)
 29. [Entry 29 - Backward-Compatible Migration Path](#entry-29)
+30. [Entry 30 - Legacy Per-Machine Binding Interface Removed](#entry-30)
 ## Change Log Rules
 
 Each entry uses:
@@ -465,5 +466,18 @@ Each entry uses:
 - Why improved:
   - Enables phased adoption without disrupting existing production usage.
   - Lowers migration risk by allowing old and new operational models to coexist during rollout.
+
+---
+
+## Entry 30
+
+- Change summary: Remove legacy per-machine task binding interface; all tasks now exclusively use config-pool-based scheduling.
+- Entry type: Requirement Change
+- Original design -> New design:
+  - Original: Tasks could bind to either a specific named machine (`resource` field + `--resources-file`) or a config pool (`config_id` + `--registry-file`); both paths coexisted in the scheduler, TaskManager, and CLI.
+  - New: The `resource` field, `--resources-file` argument, and legacy per-resource pending queue are removed. Tasks must declare a positive `config_id`; the scheduler exclusively uses config-pool dispatch.
+- Why improved:
+  - Eliminates the dual-path complexity that increased maintenance cost and cognitive overhead for operators.
+  - Enforces a single, predictable scheduling contract across all task definitions and tooling.
 
 

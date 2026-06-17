@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import ctypes
 import os
-import random
 import re
 import subprocess
 import threading
@@ -317,7 +316,6 @@ class TaskManager:
 
         # Resource conflict tracking
         self._resource_lock: dict[str, str] = {}  # resource_id -> task_id holding lock
-        self._pending_by_resource: dict[str, list[str]] = {}  # resource_id -> [task_id, ...]
         self._pending_by_config: dict[int, list[str]] = {}  # config_id -> [task_id, ...]
 
         # Optional resource registry injected by task_host wiring step.
@@ -348,9 +346,6 @@ class TaskManager:
                 raise ValueError(f"task {task_id} has invalid command: {command!r}")
             commands.append(command)
 
-        resource_raw = item.get("resource", "")
-        resource = resource_raw.strip() if isinstance(resource_raw, str) else ""
-
         config_id_raw = item.get("config_id", 0)
         config_id = 0
         if config_id_raw not in (None, ""):
@@ -358,21 +353,13 @@ class TaskManager:
                 config_id = int(config_id_raw)
             except (TypeError, ValueError) as exc:
                 raise ValueError(f"task {task_id} has invalid config_id: {config_id_raw!r}") from exc
-            if config_id < 0:
+            if config_id <= 0:
                 raise ValueError(f"task {task_id} has non-positive config_id: {config_id}")
 
-        if config_id > 0:
-            if registered_config_ids is not None and config_id not in registered_config_ids:
-                raise ValueError(f"task {task_id} references unregistered config_id: {config_id}")
-        else:
-            if not resource:
-                raise ValueError(
-                    f"task {task_id} must have either a non-empty 'resource' string field or a positive 'config_id'"
-                )
-            if registered_resources is not None and resource not in registered_resources:
-                raise ValueError(
-                    f"task {task_id} references unregistered resource: {resource!r}"
-                )
+        if config_id <= 0:
+            raise ValueError(f"task {task_id} must include a positive 'config_id'")
+        if registered_config_ids is not None and config_id not in registered_config_ids:
+            raise ValueError(f"task {task_id} references unregistered config_id: {config_id}")
 
         priority_raw = item.get("priority")
         if priority_raw is None:
@@ -389,7 +376,7 @@ class TaskManager:
         return TaskJob(
             task_id=task_id,
             commands=commands,
-            resource=resource,
+            resource="",
             config_id=config_id,
             priority=priority,
         )
@@ -453,7 +440,6 @@ class TaskManager:
                     task.abort_reason = "force_stop"
                     task.blocked_by = None
                     task.ended_at = now_iso()
-            self._pending_by_resource.clear()
             self._pending_by_config.clear()
 
             # Mark startup-phase tasks as aborted immediately.
@@ -513,7 +499,6 @@ class TaskManager:
                 task.abort_reason = reason
                 task.blocked_by = None
                 task.ended_at = now_iso()
-        self._pending_by_resource.clear()
         self._pending_by_config.clear()
         self._resource_lock.clear()
 
@@ -553,7 +538,7 @@ class TaskManager:
         try:
             parsed_tasks = self._parse_task_payload(
                 tasks_payload,
-                self._registered_resources_set,
+                None,
                 set(self._resource_registry.configs.keys()) if self._resource_registry is not None else None,
             )
         except ValueError as exc:
@@ -609,7 +594,6 @@ class TaskManager:
                 self._reader_threads.clear()
                 self._log_files.clear()
                 self._resource_lock.clear()
-                self._pending_by_resource.clear()
                 self._pending_by_config.clear()
 
         accepted_task_ids = [task.task_id for task in parsed_tasks]
@@ -635,15 +619,9 @@ class TaskManager:
                 }
             if task.status == TaskStatus.PENDING:
                 # Remove from pending index; no process to terminate.
-                if task.config_id > 0:
-                    pending_list = self._pending_by_config.get(task.config_id, [])
-                    if task_id in pending_list:
-                        pending_list.remove(task_id)
-                else:
-                    resource = task.resource
-                    pending_list = self._pending_by_resource.get(resource, [])
-                    if task_id in pending_list:
-                        pending_list.remove(task_id)
+                pending_list = self._pending_by_config.get(task.config_id, [])
+                if task_id in pending_list:
+                    pending_list.remove(task_id)
                 self._set_task_status(task, TaskStatus.ABORTED)
                 task.abort_reason = "user_abort"
                 task.blocked_by = None
@@ -758,18 +736,6 @@ class TaskManager:
                 return
         self.queue.append(task_id)
 
-    def _insert_pending_sorted(self, resource: str, task_id: str) -> None:
-        """Insert task_id into pending_by_resource[resource] sorted by (priority, created_at)."""
-        pending_list = self._pending_by_resource.setdefault(resource, [])
-        task = self.tasks[task_id]
-        key = (task.priority, task.created_at)
-        for i, tid in enumerate(pending_list):
-            other = self.tasks[tid]
-            if key < (other.priority, other.created_at):
-                pending_list.insert(i, task_id)
-                return
-        pending_list.append(task_id)
-
     def _insert_pending_by_config_sorted(self, config_id: int, task_id: str) -> None:
         """Insert task_id into pending_by_config[config_id] sorted by (priority, created_at)."""
         pending_list = self._pending_by_config.setdefault(config_id, [])
@@ -781,27 +747,6 @@ class TaskManager:
                 pending_list.insert(i, task_id)
                 return
         pending_list.append(task_id)
-
-    def _wake_pending_for_resource(self, resource: str) -> None:
-        """Promote the single highest-priority pending task for a resource back to queued.
-        Called while holding self._lock.
-        """
-        pending_list = self._pending_by_resource.get(resource, [])
-        if not pending_list:
-            return
-
-        # All tasks at the front share the minimum priority; choose one randomly among ties.
-        min_prio = self.tasks[pending_list[0]].priority
-        same_prio = [tid for tid in pending_list if self.tasks[tid].priority == min_prio]
-        chosen = random.choice(same_prio)
-
-        pending_list.remove(chosen)
-
-        task = self.tasks[chosen]
-        task.blocked_by = None
-        self._set_task_status(task, TaskStatus.QUEUED)
-        self._insert_queue_sorted(chosen)
-        print(f"[HOST] resource {resource!r} released -> promoted pending task {chosen} to queued")
 
     def _wake_pending_for_config(self, config_id: int) -> bool:
         """Promote one pending task waiting on a config pool.
@@ -833,14 +778,12 @@ class TaskManager:
     def _wake_pending_for_released_resource(self, resource_name: str) -> None:
         """Wake pending waiters when a resource is released.
 
-        Config-pool path is preferred when the released resource maps to a
-        config_id in the loaded registry. If no config waiter is found, fall
-        back to the legacy resource-specific queue.
+        Config-pool path is used when the released resource maps to a config_id
+        in the loaded registry.
         """
         config_id = self._config_id_of_resource(resource_name)
-        if config_id is not None and self._wake_pending_for_config(config_id):
-            return
-        self._wake_pending_for_resource(resource_name)
+        if config_id is not None:
+            self._wake_pending_for_config(config_id)
 
     def _convert_all_pending_to_queued_locked(self) -> None:
         """Batch-convert all pending tasks to queued (used when DRAINING -> NOT_RUN).
@@ -851,7 +794,6 @@ class TaskManager:
                 task.blocked_by = None
                 self._set_task_status(task, TaskStatus.QUEUED)
                 self._insert_queue_sorted(task.task_id)
-        self._pending_by_resource.clear()
         self._pending_by_config.clear()
 
     def _pick_free_resource_from_registry(self, config_id: int, claimed: set[str]) -> str | None:
@@ -874,30 +816,15 @@ class TaskManager:
         to_start: list[tuple[str, str]],
     ) -> str | None:
         """Find the task currently blocking a pending task."""
-        # Config-pool mode: any lock holder (or same-tick starter) on same config.
-        if task.config_id > 0:
-            for holder in self._resource_lock.values():
-                holder_task = self.tasks.get(holder)
-                if holder_task is not None and holder_task.config_id == task.config_id:
-                    return holder
-            for starter_id, _assigned in to_start:
-                starter_task = self.tasks.get(starter_id)
-                if starter_task is not None and starter_task.config_id == task.config_id:
-                    return starter_id
-            return None
-
-        # Legacy path: blocked by the specific resource owner.
-        holder = self._resource_lock.get(task.resource)
-        if holder is not None:
-            return holder
-        return next(
-            (
-                starter_id
-                for starter_id, assigned_resource in to_start
-                if assigned_resource == task.resource
-            ),
-            None,
-        )
+        for holder in self._resource_lock.values():
+            holder_task = self.tasks.get(holder)
+            if holder_task is not None and holder_task.config_id == task.config_id:
+                return holder
+        for starter_id, _assigned in to_start:
+            starter_task = self.tasks.get(starter_id)
+            if starter_task is not None and starter_task.config_id == task.config_id:
+                return starter_id
+        return None
 
     def load_resources(self, resources: list[str]) -> dict[str, Any]:
         """Register the resource list. Accepted only when host is NOT_RUN and not yet loaded."""
@@ -952,7 +879,10 @@ class TaskManager:
             resources = []
             for resource in self._registered_resources:
                 held_by = self._resource_lock.get(resource)
-                pending_for = list(self._pending_by_resource.get(resource, []))
+                pending_for: list[str] = []
+                config_id = self._config_id_of_resource(resource)
+                if config_id is not None:
+                    pending_for = list(self._pending_by_config.get(config_id, []))
                 resources.append({
                     "resource": resource,
                     "status": "occupied" if held_by else "free",
@@ -1446,8 +1376,6 @@ class TaskManager:
                 host_running=self.host_state == HostState.RUNNING,
                 is_runnable=lambda task_id: self.tasks[task_id].status == TaskStatus.QUEUED,
                 get_resource_usage=self._resource_probe.snapshot,
-                get_task_resource=lambda task_id: self.tasks[task_id].resource,
-                is_resource_free=lambda resource: resource not in self._resource_lock,
                 get_task_config=(
                     (lambda task_id: self.tasks[task_id].config_id)
                     if self._resource_registry is not None
@@ -1468,12 +1396,6 @@ class TaskManager:
                     self._insert_pending_by_config_sorted(task.config_id, task_id)
                     print(
                         f"[TASK] {task_id} -> pending (config_id={task.config_id} "
-                        f"blocked_by={task.blocked_by!r})"
-                    )
-                else:
-                    self._insert_pending_sorted(task.resource, task_id)
-                    print(
-                        f"[TASK] {task_id} -> pending (resource={task.resource!r} "
                         f"blocked_by={task.blocked_by!r})"
                     )
 
