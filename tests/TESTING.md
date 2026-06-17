@@ -46,10 +46,15 @@ tests/
 | Doc section | Feature | Test file |
 |-------------|---------|-----------|
 | design_scheduler.md §4 | Admission policy: host_running, resource thresholds, concurrency cap, FIFO | `unit/test_scheduler.py` |
+| design_scheduler.md §4 | Config-pool admission: config_id callbacks, pool allocation, legacy fallback | `unit/test_scheduler_pool.py` |
 | design_task_host.md §3 | Task file formats (list/dict), validation (duplicate id, empty commands) | `unit/test_task_loading.py` |
+| design_task_host.md §3.1 | Resource registry loader validation and config-name resolution contract | `unit/test_resource_registry_loader.py` |
 | design_task_manager.md §3 | HOST state machine: all transitions, invalid-transition rejection | `unit/test_host_state_machine.py` |
 | design_task_manager.md §2.2 | Task state machine: STARTING->ABORTED, rerun (SUCCEEDED/FAILED/ABORTED->QUEUED) | `unit/test_task_state_machine.py` |
+| design_task_manager.md §2.4 | Config-pool pending/wake behavior, priority wake order, force-stop pending cleanup | `unit/test_config_pool_conflict.py` |
+| design_task_manager.md §4.1 | Resource placeholder rendering and strict unknown-placeholder failure | `unit/test_template_render.py` |
 | design_arch.md capability 1/5 | Multi-task concurrent execution, all tasks succeed | `e2e/test_smoke.py` |
+| design_arch.md capability 1/5 | Config-pool end-to-end scheduling with assigned_resource verification | `e2e/test_config_pool.py` |
 | design_control_plane.md §3.1 | graceful-stop: RUNNING->DRAINING, in-flight tasks complete, ->NOT_RUN | `e2e/test_control.py` |
 | design_control_plane.md §3.2 | force-stop: RUNNING->STOPPING_FORCE, tasks->ABORTED, ->NOT_RUN | `e2e/test_control.py` |
 | design_control_plane.md §3.3 | rerun: SUCCEEDED->QUEUED, task completes again | `e2e/test_control.py` |

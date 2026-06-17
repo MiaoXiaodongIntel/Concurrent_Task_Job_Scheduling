@@ -22,24 +22,25 @@ It is responsible for:
 Current arguments:
 
 1. `--tasks-file` (optional)
-2. `--resources-file` (required when `--tasks-file` is provided; omit only when starting with empty task set)
-3. `--max-concurrency` (optional; if omitted, no concurrency cap is applied and admission is limited only by the CPU/memory/disk thresholds)
-4. `--max-cpu-percent` (default: `75.0`)
-5. `--max-memory-percent` (default: `75.0`)
-6. `--max-disk-active-percent` (default: `80.0`)
-7. `--scheduler-tick` (default: `0.5`)
-8. `--status-interval` (default: `2.0`)
-9. `--log-dir` (default: `logs`)
-10. `--artifact-base-dir` (default: `task_artifacts`)
-11. `--summary-json` (optional)
-12. `--monitor-host` (default: `127.0.0.1`)
-13. `--monitor-port` (default: `8765`)
-14. `--interactive-cli` (optional, default: `false`)
+2. `--resources-file` (optional legacy resource list path)
+3. `--registry-file` (optional config-pool resource registry path)
+4. `--max-concurrency` (optional; if omitted, no concurrency cap is applied and admission is limited only by the CPU/memory/disk thresholds)
+5. `--max-cpu-percent` (default: `75.0`)
+6. `--max-memory-percent` (default: `75.0`)
+7. `--max-disk-active-percent` (default: `80.0`)
+8. `--scheduler-tick` (default: `0.5`)
+9. `--status-interval` (default: `2.0`)
+10. `--log-dir` (default: `logs`)
+11. `--artifact-base-dir` (default: `task_artifacts`)
+12. `--summary-json` (optional)
+13. `--monitor-host` (default: `127.0.0.1`)
+14. `--monitor-port` (default: `8765`)
+15. `--interactive-cli` (optional, default: `false`)
 
 CLI validation rules:
 
-1. If `--tasks-file` is provided, `--resources-file` must also be provided (fail-fast with exit code `2`).
-2. If `--tasks-file` is omitted, `--resources-file` may also be omitted; resources are loaded later via `POST /resources`.
+1. If `--tasks-file` is provided, at least one of `--resources-file` or `--registry-file` must be provided (fail-fast with exit code `2`).
+2. If `--tasks-file` is omitted, both may be omitted; tasks/resources can be loaded later via APIs.
 3. Threshold parameters are normalized to `1.0..100.0` range by Scheduler.
 4. `--max-concurrency` has no default; when omitted, the Scheduler applies no concurrency cap and admission is governed solely by the CPU/memory/disk host thresholds.
 5. `--artifact-base-dir` defaults to `task_artifacts` (relative path resolved from CWD). The directory is only created for a specific task run when that task's commands contain the `{ARTIFACT_DIR}` placeholder; tasks without the placeholder are entirely unaffected.
@@ -62,15 +63,17 @@ Each task object requires:
 
 1. `task_id` (optional, auto-generated if missing/empty)
 2. non-empty `commands: list[str]`
-3. `resource: str` — required, must be a non-empty string matching a registered resource (case-sensitive)
+3. One of the following must be provided:
+	- `resource: str` (legacy path) — non-empty string matching a registered resource (case-sensitive)
+	- `config_id: int` (new path) — positive integer matching a registered config ID from resource registry
 4. `priority: int` — required, must be a positive integer (lower value = higher priority)
 
 Validation guarantees:
 
 1. no duplicate `task_id`
 2. all commands are non-empty strings
-3. `resource` field present and non-empty
-4. `resource` value exists in the registered resource list (cross-validated after resources are loaded)
+3. `resource` (legacy) or `config_id` (new) is present and valid
+4. `resource` value exists in the registered resource list, or `config_id` exists in the loaded resource registry
 5. `priority` field present and is a positive integer
 6. at least one task exists (when tasks file is provided)
 
@@ -95,7 +98,7 @@ Runtime resource loading via `POST /resources` follows the same schema and valid
 
 Runtime submission contract (via Monitor API):
 
-1. `POST /tasks/submit` payload follows the same task schema (`task_id`, `commands`, `resource`, `priority`).
+1. `POST /tasks/submit` payload follows the same task schema (`task_id`, `commands`, `priority`, and either `resource` or `config_id`).
 2. `append` mode appends new tasks inserted at the correct position by (priority, created_at).
 3. `replace` mode is rejected when there are in-flight or `pending` tasks.
 

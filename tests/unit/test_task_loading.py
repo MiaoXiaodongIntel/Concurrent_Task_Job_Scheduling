@@ -29,8 +29,10 @@ def _write_json(tmp_path: Path, data: object, name: str = "tasks.json") -> Path:
 
 
 REGISTERED_RESOURCES = {"machine-A", "machine-B"}
+REGISTERED_CONFIG_IDS = {1, 2}
 
 VALID_TASK = {"task_id": "t1", "resource": "machine-A", "priority": 1, "commands": ["echo hi"]}
+VALID_CONFIG_TASK = {"task_id": "c1", "config_id": 1, "priority": 1, "commands": ["echo hi"]}
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +110,33 @@ def test_invalid_top_level_raises(tmp_path):
     """Neither list nor dict-with-tasks raises ValueError."""
     data = "not valid"
     with pytest.raises(ValueError):
+        load_tasks(_write_json(tmp_path, data), registered_resources=REGISTERED_RESOURCES)
+
+
+def test_config_id_task_is_accepted(tmp_path):
+    """A task with config_id (without resource) is accepted."""
+    data = [VALID_CONFIG_TASK]
+    tasks = load_tasks(
+        _write_json(tmp_path, data),
+        registered_config_ids=REGISTERED_CONFIG_IDS,
+    )
+    assert len(tasks) == 1
+    assert tasks[0].task_id == "c1"
+    assert tasks[0].config_id == 1
+    assert tasks[0].resource == ""
+
+
+def test_unregistered_config_id_raises(tmp_path):
+    """Config_id not in registry raises ValueError."""
+    data = [{"task_id": "c1", "config_id": 9, "priority": 1, "commands": ["echo hi"]}]
+    with pytest.raises(ValueError, match="unregistered config_id"):
+        load_tasks(_write_json(tmp_path, data), registered_config_ids=REGISTERED_CONFIG_IDS)
+
+
+def test_missing_resource_and_config_id_raises(tmp_path):
+    """Task must provide either resource or config_id."""
+    data = [{"task_id": "t1", "priority": 1, "commands": ["echo hi"]}]
+    with pytest.raises(ValueError, match="resource.*config_id"):
         load_tasks(_write_json(tmp_path, data), registered_resources=REGISTERED_RESOURCES)
 
 

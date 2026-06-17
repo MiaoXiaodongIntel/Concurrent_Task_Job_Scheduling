@@ -1,0 +1,20 @@
+{
+  "resources": [
+    {
+      "config_id": 1,
+      "name": "machine-A",
+      "properties": {
+        "ip": "10.0.0.1",
+        "os": "ubuntu22"
+      }
+    },
+    {
+      "config_id": 1,
+      "name": "machine-B",
+      "properties": {
+        "ip": "10.0.0.2",
+        "os": "ubuntu22"
+      }
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "tasks": [
+    {
+      "task_id": "cfg-demo-1",
+      "config_id": 1,
+      "priority": 1,
+      "commands": [
+        "Write-Host 'cfg-demo-1 resource={resource.name} ip={resource.properties.ip}'",
+        "Write-Host 'cfg-demo-1 done'"
+      ]
+    },
+    {
+      "task_id": "cfg-demo-2",
+      "config_id": 1,
+      "priority": 2,
+      "commands": [
+        "Write-Host 'cfg-demo-2 resource={resource.name} ip={resource.properties.ip}'",
+        "Write-Host 'cfg-demo-2 done'"
+      ]
+    }
+  ]
+}

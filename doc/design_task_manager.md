@@ -23,7 +23,7 @@ Task states:
 State semantics:
 
 1. `queued`: task is eligible for immediate scheduling consideration in the next tick.
-2. `pending`: task has been evaluated by the scheduler but its required remote resource is currently held by another `starting` or `running` task; it waits for the resource to be released.
+2. `pending`: task has been evaluated by the scheduler but its required resource target is currently unavailable (either specific `resource` in legacy path or any free member in a `config_id` pool); it waits for release.
 3. `starting`: task has been admitted and the resource lock is held; startup has begun (script materialization/spawn phase), but stable running execution has not been confirmed yet.
 4. `running`: task process is alive and task output can be observed.
 5. `succeeded`: task finished with success exit code in the latest attempt.
@@ -63,7 +63,7 @@ Baseline transitions:
 
 1. `queued -> starting` (condition: host in `RUNNING` state, resource is free)
 2. `queued -> pending` (condition: host in `RUNNING` state, resource is occupied)
-3. `pending -> queued` (automatic: resource released, this task promoted as highest-priority waiter)
+3. `pending -> queued` (automatic: resource released; highest-priority waiter for same `config_id` is preferred, with legacy resource-based fallback)
 4. `pending -> aborted` (force-stop path or per-task abort_task path)
 5. `starting -> running|failed`
 6. `running -> succeeded|failed`
@@ -98,7 +98,9 @@ stateDiagram-v2
 ### 2.3 Queue Ordering and Priority
 
 1. Each task has a mandatory `priority: int` field (positive integer; lower value = higher priority).
-2. Each task has a mandatory `resource: str` field (remote machine identifier, case-sensitive, must match a registered resource).
+2. Each task uses one resource-targeting mode:
+    - legacy mode: `resource: str` (remote machine identifier, case-sensitive, must match a registered resource)
+    - pool mode: `config_id: int` (positive integer, scheduler chooses a concrete `assigned_resource` at dispatch time)
 3. The internal queue is maintained in sorted order: ascending by `(priority, created_at)`.
 4. Initial load and `append` submissions insert tasks at the correct position by (priority, created_at) — stable sort.
 5. `rerun` appends tasks to the tail of the queue, sorted among themselves by (priority, created_at) — they do not jump ahead of waiting queued tasks.
@@ -106,11 +108,12 @@ stateDiagram-v2
 
 ### 2.4 Resource Lock Protocol
 
-1. Resource lock is written when a task enters `starting` — not when it enters `running`. This ensures the Scheduler sees the lock in the same tick and prevents a second task from being admitted to the same resource.
+1. Resource lock is written when a task enters `starting` — keyed by concrete assigned resource (`assigned_resource` in pool mode, otherwise `resource`). This ensures the Scheduler sees the lock in the same tick and prevents double admission.
 2. Resource lock is released when a task enters any terminal state (`succeeded`, `failed`, `aborted`) or when force-stop clears the lock table.
-3. After resource release, TaskManager selects the single highest-priority pending task for that resource and promotes it to `queued`. If multiple pending tasks share the minimum priority, one is chosen randomly.
+3. After resource release, TaskManager first tries to promote the single highest-priority pending task waiting on the same `config_id` (when registry mapping is available); if none exists, it falls back to legacy per-resource pending promotion. Legacy per-resource tie-breaking keeps random selection among equal-priority front candidates.
 4. Lock table: `resource_lock: dict[str, str]` mapping `resource_id -> task_id`.
 5. Pending index: `pending_by_resource: dict[str, list[str]]` mapping `resource_id -> [task_id, ...]` sorted by (priority, created_at).
+6. Pending index (pool mode): `pending_by_config: dict[int, list[str]]` mapping `config_id -> [task_id, ...]` sorted by (priority, created_at).
 
 ## 3. Host Lifecycle Model
 
@@ -170,6 +173,9 @@ Each `TaskJob` instance holds the following fields:
 | `task_id` | string | unique per host session |
 | `commands` | list[str] | original command list; may contain `{ARTIFACT_DIR}` |
 | `resource` | string | registered remote machine identifier |
+| `config_id` | int | config pool identifier; `>0` enables pool-mode scheduling |
+| `assigned_resource` | string \| null | concrete resource chosen at dispatch/start time |
+| `resolved_commands` | list[string] \| null | command template output after resource placeholder rendering |
 | `priority` | int | positive integer, lower = higher priority |
 | `status` | TaskStatus | current lifecycle state |
 | `created_at` | ISO timestamp | set at object creation |
@@ -230,6 +236,8 @@ TaskManager owns:
 8. resource registry: `registered_resources: list[str]` (loaded once from config, immutable after loading)
 9. resource lock table: `resource_lock: dict[str, str]` (resource_id → holding task_id)
 10. pending index: `pending_by_resource: dict[str, list[str]]` (resource_id → sorted pending task_ids)
+11. optional resource registry object for config-pool scheduling and template rendering context
+12. pending index (pool mode): `pending_by_config: dict[int, list[str]]` (config_id → sorted pending task_ids)
 
 ## 5. Interface to Other Modules
 
@@ -258,7 +266,7 @@ Outbound views:
 2. `_emit_status_if_due()` emits periodic host health snapshot.
 3. `_try_schedule()` queries scheduler and starts selected tasks.
 4. `_watch_task()` finalizes each task and applies terminal status.
-5. `_advance_host_state()` moves host among `RUNNING|DRAINING|STOPPING_FORCE|IDLE|SHUTTING_DOWN`.
+5. `_advance_host_state()` moves host among `RUNNING|DRAINING|STOPPING_FORCE|NOT_RUN|SHUTTING_DOWN`.
 6. Host loop exits only when shutdown is requested and in-flight work reaches zero.
 
 ## 8. Lifecycle Requirement Mapping

@@ -11,17 +11,24 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import threading
 from pathlib import Path
+from typing import Callable
 
 from monitor_api import MonitorServer
+from resource_registry import ResourceRegistry, load_resource_registry
 from scheduler import Scheduler
 from task_manager import TaskJob, TaskManager, TaskStatus
 from task_runner import TaskRunner
 
 
-def load_tasks(tasks_file: Path, registered_resources: set[str] | None = None) -> list[TaskJob]:
+def load_tasks(
+    tasks_file: Path,
+    registered_resources: set[str] | None = None,
+    registered_config_ids: set[int] | None = None,
+) -> list[TaskJob]:
     raw = json.loads(tasks_file.read_text(encoding="utf-8"))
 
     task_items: list[dict[str, object]]
@@ -56,15 +63,31 @@ def load_tasks(tasks_file: Path, registered_resources: set[str] | None = None) -
                 raise ValueError(f"task {task_id} has invalid command: {command!r}")
             commands.append(command)
 
-        resource_raw = item.get("resource")
-        if not isinstance(resource_raw, str) or not resource_raw.strip():
-            raise ValueError(f"task {task_id} must have a non-empty 'resource' string field")
-        resource = resource_raw.strip()
+        resource_raw = item.get("resource", "")
+        resource = resource_raw.strip() if isinstance(resource_raw, str) else ""
 
-        if registered_resources is not None and resource not in registered_resources:
-            raise ValueError(
-                f"task {task_id} references unregistered resource: {resource!r}"
-            )
+        config_id_raw = item.get("config_id", 0)
+        config_id = 0
+        if config_id_raw not in (None, ""):
+            try:
+                config_id = int(config_id_raw)  # type: ignore[arg-type]
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"task {task_id} has invalid config_id: {config_id_raw!r}") from exc
+            if config_id < 0:
+                raise ValueError(f"task {task_id} has non-positive config_id: {config_id}")
+
+        if config_id > 0:
+            if registered_config_ids is not None and config_id not in registered_config_ids:
+                raise ValueError(f"task {task_id} references unregistered config_id: {config_id}")
+        else:
+            if not resource:
+                raise ValueError(
+                    f"task {task_id} must have either a non-empty 'resource' string field or a positive 'config_id'"
+                )
+            if registered_resources is not None and resource not in registered_resources:
+                raise ValueError(
+                    f"task {task_id} references unregistered resource: {resource!r}"
+                )
 
         priority_raw = item.get("priority")
         if priority_raw is None:
@@ -78,7 +101,15 @@ def load_tasks(tasks_file: Path, registered_resources: set[str] | None = None) -
                 f"task {task_id} 'priority' must be a positive integer: {exc}"
             ) from exc
 
-        tasks.append(TaskJob(task_id=task_id, commands=commands, resource=resource, priority=priority))
+        tasks.append(
+            TaskJob(
+                task_id=task_id,
+                commands=commands,
+                resource=resource,
+                config_id=config_id,
+                priority=priority,
+            )
+        )
 
     if not tasks:
         raise ValueError("No tasks found in tasks file")
@@ -103,6 +134,47 @@ def load_resources_file(resources_file: Path) -> list[str]:
     return result
 
 
+def _build_config_name_fetcher() -> Callable[[int], str]:
+    """Build a config-name fetcher with local fallback when HSD is unavailable."""
+
+    cache: dict[int, str] = {}
+
+    username = os.getenv("HSDES_USERNAME")
+    token = os.getenv("HSDES_TOKEN")
+    client = None
+    if username and token:
+        try:
+            from lib.hsdes_client import HsdesClient
+
+            client = HsdesClient(username=username, token=token)
+        except Exception:
+            client = None
+
+    def fetch_config_name(config_id: int) -> str:
+        if config_id in cache:
+            return cache[config_id]
+
+        if client is not None:
+            try:
+                result = client.get_article(config_id, fields=["id", "title", "name"])
+                if result.get("ok"):
+                    data = result.get("data")
+                    row = data[0] if isinstance(data, list) and data else data
+                    if isinstance(row, dict):
+                        maybe_name = row.get("name") or row.get("title")
+                        if isinstance(maybe_name, str) and maybe_name.strip():
+                            cache[config_id] = maybe_name.strip()
+                            return cache[config_id]
+            except Exception:
+                pass
+
+        # Local/test fallback: keep host runnable when HSD is unavailable.
+        cache[config_id] = f"config-{config_id}"
+        return cache[config_id]
+
+    return fetch_config_name
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Host scheduler: concurrent task jobs with state machine and real-time logs"
@@ -116,6 +188,11 @@ def parse_args() -> argparse.Namespace:
         "--resources-file",
         default="",
         help="Path to JSON resource definition file. Required when --tasks-file is provided.",
+    )
+    parser.add_argument(
+        "--registry-file",
+        default="",
+        help="Path to JSON resource_registry file (config_id-based pools).",
     )
     parser.add_argument(
         "--max-concurrency",
@@ -254,10 +331,14 @@ def main() -> int:
     artifact_base_dir = Path(args.artifact_base_dir).resolve()
 
     registered_resources: list[str] = []
+    resource_registry: ResourceRegistry | None = None
     tasks: list[TaskJob] = []
 
-    if args.tasks_file and not args.resources_file:
-        print("Error: --resources-file is required when --tasks-file is provided.", file=sys.stderr)
+    if args.tasks_file and not args.resources_file and not args.registry_file:
+        print(
+            "Error: either --resources-file or --registry-file is required when --tasks-file is provided.",
+            file=sys.stderr,
+        )
         return 2
 
     if args.resources_file:
@@ -268,10 +349,25 @@ def main() -> int:
             print(f"Failed to load resources file: {exc}", file=sys.stderr)
             return 2
 
+    if args.registry_file:
+        registry_file = Path(args.registry_file).resolve()
+        try:
+            resource_registry = load_resource_registry(
+                registry_file,
+                fetch_config_name=_build_config_name_fetcher(),
+            )
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            print(f"Failed to load resource registry file: {exc}", file=sys.stderr)
+            return 2
+
     if args.tasks_file:
         tasks_file = Path(args.tasks_file).resolve()
         try:
-            tasks = load_tasks(tasks_file, registered_resources=set(registered_resources))
+            tasks = load_tasks(
+                tasks_file,
+                registered_resources=set(registered_resources) if registered_resources else None,
+                registered_config_ids=(set(resource_registry.configs.keys()) if resource_registry else None),
+            )
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             print(f"Failed to load tasks file: {exc}", file=sys.stderr)
             return 2
@@ -292,6 +388,7 @@ def main() -> int:
         scheduler_tick=args.scheduler_tick,
         status_interval=args.status_interval,
         registered_resources=registered_resources if registered_resources else None,
+        resource_registry=resource_registry,
     )
 
     monitor = MonitorServer(manager=manager, host=args.monitor_host, port=args.monitor_port)

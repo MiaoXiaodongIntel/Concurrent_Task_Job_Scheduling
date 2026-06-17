@@ -34,6 +34,9 @@
 24. [Entry 24 - Adjustable Web GUI Refresh Interval](#entry-24)
 25. [Entry 25 - Tasks View exit_code Column Replaced by run_index](#entry-25)
 26. [Entry 26 - Tasks View Column and Button Labels Clarified](#entry-26)
+27. [Entry 27 - Resource Pool Scheduling Model](#entry-27)
+28. [Entry 28 - Execution Path Guardrails and Validation](#entry-28)
+29. [Entry 29 - Backward-Compatible Migration Path](#entry-29)
 ## Change Log Rules
 
 Each entry uses:
@@ -427,5 +430,40 @@ Each entry uses:
 - Why improved:
   - `Operation` makes it clear the column is for user actions, not a data field.
   - `Detail` on the button aligns the label with the destination view name, reducing confusion for new users.
+
+---
+
+## Entry 27
+
+- Change summary: Scheduling changed from fixed machine binding to dynamic resource-pool allocation by configuration.
+- Entry type: Requirement Change
+- Original design -> New design:
+  - Original: Each task had to bind to one preselected machine, which limited parallel throughput and required manual matching.
+  - New: Tasks declare a target configuration pool, and the scheduler dynamically selects an available resource at dispatch time.
+- Why improved:
+  - Increases effective concurrency and resource utilization for workloads sharing the same capability profile.
+  - Reduces operational overhead from manual machine-to-task assignment.
+
+## Entry 28
+
+- Change summary: Execution path now applies standardized resource-context rendering with strict validation before task start.
+- Entry type: Design Modification
+- Original design -> New design:
+  - Original: Task commands were executed with mostly static input assumptions and weak validation for missing runtime context.
+  - New: Resource context is injected through command templates before start, and unresolved placeholders are treated as explicit start-time errors.
+- Why improved:
+  - Improves execution predictability by failing early on invalid runtime inputs.
+  - Prevents hidden misconfigurations from propagating into hard-to-diagnose runtime failures.
+
+## Entry 29
+
+- Change summary: New registry-based flow is introduced with full compatibility for legacy task and resource interfaces.
+- Entry type: Requirement Change
+- Original design -> New design:
+  - Original: Transition to new scheduling semantics risked breaking existing tasks and operational startup scripts.
+  - New: Registry/config-id workflow is added while preserving legacy resource-based loading and execution paths.
+- Why improved:
+  - Enables phased adoption without disrupting existing production usage.
+  - Lowers migration risk by allowing old and new operational models to coexist during rollout.
 
 

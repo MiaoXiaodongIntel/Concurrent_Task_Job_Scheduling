@@ -137,11 +137,13 @@ class HostProcess:
         self,
         tasks_file: Path | None = None,
         resources_file: Path | None = None,
+        registry_file: Path | None = None,
         max_concurrency: int = 2,
         extra_args: list[str] | None = None,
     ) -> None:
         self._tasks_file = tasks_file
         self._resources_file = resources_file
+        self._registry_file = registry_file
         self._max_concurrency = max_concurrency
         self._extra_args = extra_args or []
         self._port: int = free_port()
@@ -162,6 +164,8 @@ class HostProcess:
             cmd += ["--tasks-file", str(self._tasks_file)]
         if self._resources_file:
             cmd += ["--resources-file", str(self._resources_file)]
+        if self._registry_file:
+            cmd += ["--registry-file", str(self._registry_file)]
         cmd += self._extra_args
 
         self._proc = subprocess.Popen(

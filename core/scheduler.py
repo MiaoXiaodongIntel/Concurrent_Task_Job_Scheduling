@@ -15,7 +15,7 @@ class Scheduler:
     """Admission controller for queued tasks.
 
     Returns (to_start, to_pending) per tick:
-    - to_start: task IDs admitted to the starting phase (resource is free)
+    - to_start: (task_id, assigned_resource) tuples admitted to starting
     - to_pending: task IDs blocked by resource conflict (resource is occupied)
     """
 
@@ -40,7 +40,9 @@ class Scheduler:
         get_resource_usage: Callable[[], ResourceUsage | None] | None = None,
         get_task_resource: Callable[[str], str] | None = None,
         is_resource_free: Callable[[str], bool] | None = None,
-    ) -> tuple[list[str], list[str]]:
+        get_task_config: Callable[[str], int] | None = None,
+        pick_free_resource: Callable[[int, set[str]], str | None] | None = None,
+    ) -> tuple[list[tuple[str, str]], list[str]]:
         """Return (to_start, to_pending) for the current scheduling tick.
 
         Queue is expected to be pre-sorted by (priority asc, created_at asc).
@@ -68,7 +70,7 @@ class Scheduler:
             if available_slots <= 0:
                 return [], []
 
-        to_start: list[str] = []
+        to_start: list[tuple[str, str]] = []
         to_pending: list[str] = []
         # Resources claimed by earlier candidates within THIS tick. The real
         # resource lock is written by TaskManager only after pick_next_tasks
@@ -83,15 +85,38 @@ class Scheduler:
                 # Non-runnable: skip without consuming a slot or going to pending.
                 continue
 
+            resource_for_task = ""
+
+            # New path: config-pool dispatch. If config_id is non-zero and a free
+            # resource can be chosen from the pool, admit with the chosen resource.
+            # If no free resource exists, move to pending without consuming a slot.
+            if get_task_config is not None and pick_free_resource is not None:
+                config_id = get_task_config(next_id)
+                if config_id:
+                    picked = pick_free_resource(config_id, claimed_in_tick)
+                    if picked is None:
+                        to_pending.append(next_id)
+                        continue
+                    resource_for_task = picked
+                    claimed_in_tick.add(resource_for_task)
+                    to_start.append((next_id, resource_for_task))
+                    if available_slots is not None:
+                        available_slots -= 1
+                        if available_slots <= 0:
+                            break
+                    continue
+
+            # Old path: one task bound to one specific resource.
             if get_task_resource is not None and is_resource_free is not None:
                 resource = get_task_resource(next_id)
+                resource_for_task = resource
                 if resource in claimed_in_tick or not is_resource_free(resource):
                     # Resource conflict: send to pending, do NOT consume a slot.
                     to_pending.append(next_id)
                     continue
                 claimed_in_tick.add(resource)
 
-            to_start.append(next_id)
+            to_start.append((next_id, resource_for_task))
             if available_slots is not None:
                 available_slots -= 1
                 if available_slots <= 0:

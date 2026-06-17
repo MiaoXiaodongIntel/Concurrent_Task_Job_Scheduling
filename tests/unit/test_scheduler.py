@@ -44,6 +44,10 @@ def _get_resource(task_id: str) -> str:
     return f"machine-{task_id}"
 
 
+def _ids(to_start: list[tuple[str, str]]) -> list[str]:
+    return [task_id for task_id, _ in to_start]
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -79,7 +83,7 @@ def test_priority_order():
         queue=queue, running_count=0, host_running=True,
         is_runnable=_always_runnable, get_resource_usage=_no_resources,
     )
-    assert to_start == ["a", "b", "c"]
+    assert _ids(to_start) == ["a", "b", "c"]
 
 
 def test_skip_non_runnable():
@@ -91,7 +95,7 @@ def test_skip_non_runnable():
         is_runnable=lambda tid: tid != "skip-me",
         get_resource_usage=_no_resources,
     )
-    assert "skip-me" not in to_start
+    assert "skip-me" not in _ids(to_start)
     assert len(to_start) == 2
 
 
@@ -123,9 +127,9 @@ def test_resource_conflict_non_blocking():
         get_task_resource=lambda tid: f"machine-{tid}",
         is_resource_free=lambda res: res not in occupied_resources,
     )
-    assert "t1" not in to_start
+    assert "t1" not in _ids(to_start)
     assert "t1" in to_pending
-    assert "t2" in to_start
+    assert "t2" in _ids(to_start)
 
 
 def test_resource_conflict_does_not_consume_slot():
@@ -141,7 +145,7 @@ def test_resource_conflict_does_not_consume_slot():
         get_task_resource=lambda tid: f"machine-{tid}",
         is_resource_free=lambda res: res not in occupied,
     )
-    assert to_start == ["t2"]
+    assert _ids(to_start) == ["t2"]
     assert to_pending == ["t1"]
 
 
@@ -181,7 +185,7 @@ def test_same_resource_two_tasks_same_tick_lock_empty():
         get_task_resource=lambda t: resource_map[t],
         is_resource_free=lambda r: True,
     )
-    assert to_start == ["tc1-m2201"], "only the first task on m2201 should start"
+    assert _ids(to_start) == ["tc1-m2201"], "only the first task on m2201 should start"
     assert to_pending == ["tc2-m2201"], "second task on m2201 must be pending, not started"
 
 
@@ -198,7 +202,7 @@ def test_same_resource_three_tasks_same_tick():
         get_task_resource=lambda t: "shared-machine",
         is_resource_free=lambda r: True,
     )
-    assert to_start == ["t1"]
+    assert _ids(to_start) == ["t1"]
     assert to_pending == ["t2", "t3"]
 
 
@@ -224,7 +228,7 @@ def test_same_resource_in_tick_claim_does_not_consume_slot():
         get_task_resource=lambda t: resource_map[t],
         is_resource_free=lambda r: True,
     )
-    assert to_start == ["t1", "t3"]    # t3 gets the slot freed by t2's pending
+    assert _ids(to_start) == ["t1", "t3"]    # t3 gets the slot freed by t2's pending
     assert to_pending == ["t2"]        # machine-X in-tick conflict → pending, no slot consumed
 
 
@@ -277,6 +281,6 @@ def test_resource_threshold_tasks_start_after_load_drops():
         is_runnable=_always_runnable,
         get_resource_usage=normal_cpu,
     )
-    assert to_start == ["t1", "t2"], "all queued tasks must be admitted after load drops"
+    assert _ids(to_start) == ["t1", "t2"], "all queued tasks must be admitted after load drops"
     assert to_pending == []
 
