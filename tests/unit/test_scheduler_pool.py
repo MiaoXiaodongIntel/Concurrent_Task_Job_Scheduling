@@ -143,3 +143,21 @@ def test_pool_zero_or_missing_config_id_goes_pending():
     assert _ids(to_start) == ["t2"]
     assert _assigned(to_start) == ["resource-from-pool"]
     assert to_pending == ["t1"]
+
+
+def test_no_registry_callbacks_tasks_go_to_pending():
+    """When get_task_config/pick_free_resource are None (no registry loaded), all tasks go to pending."""
+    sched = _make_scheduler(max_concurrency=4)
+    queue = ["t1", "t2"]
+
+    to_start, to_pending = sched.pick_next_tasks(
+        queue=queue,
+        running_count=0,
+        host_running=True,
+        is_runnable=_always_runnable,
+        get_resource_usage=_no_resources,
+        # no get_task_config, no pick_free_resource → no registry loaded
+    )
+
+    assert to_start == []
+    assert to_pending == ["t1", "t2"]

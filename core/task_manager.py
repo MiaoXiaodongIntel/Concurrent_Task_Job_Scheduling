@@ -535,6 +535,15 @@ class TaskManager:
                 "message": "submit_mode must be append or replace",
             }
 
+        if self._resource_registry is None:
+            return {
+                "accepted": False,
+                "submit_mode": mode,
+                "accepted_task_ids": [],
+                "reason_code": "registry_not_loaded",
+                "message": "resource registry is not loaded; start task_host with --registry-file",
+            }
+
         try:
             parsed_tasks = self._parse_task_payload(
                 tasks_payload,

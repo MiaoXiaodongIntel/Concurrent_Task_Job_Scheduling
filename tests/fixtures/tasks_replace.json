@@ -2,7 +2,7 @@
   "tasks": [
     {
       "task_id": "replace-1",
-      "resource": "machine-A",
+      "config_id": 1,
       "priority": 1,
       "commands": [
         "Write-Host 'replace-1 start'",
@@ -11,7 +11,7 @@
     },
     {
       "task_id": "replace-2",
-      "resource": "machine-B",
+      "config_id": 1,
       "priority": 2,
       "commands": [
         "Write-Host 'replace-2 start'",
