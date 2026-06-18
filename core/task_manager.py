@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, Callable, TextIO
 
 from resource_registry import load_resource_registry_from_raw
 from scheduler import ResourceUsage, Scheduler
@@ -282,6 +282,7 @@ class TaskManager:
         registered_resources: list[str] | None = None,
         artifact_base_dir: Path | None = None,
         resource_registry: Any | None = None,
+        fetch_config_name: Callable[[int], str] | None = None,
     ) -> None:
         self.tasks: dict[str, TaskJob] = {task.task_id: task for task in tasks}
         # Queue is sorted by (priority asc, created_at asc)
@@ -319,6 +320,7 @@ class TaskManager:
 
         # Optional resource registry injected by task_host wiring step.
         self._resource_registry: Any | None = resource_registry
+        self._fetch_config_name: Callable[[int], str] = fetch_config_name or (lambda cid: f"config-{cid}")
 
     @staticmethod
     def _build_task_from_payload(
@@ -852,7 +854,7 @@ class TaskManager:
         try:
             registry = load_resource_registry_from_raw(
                 raw,
-                fetch_config_name=lambda cid: f"config-{cid}",
+                fetch_config_name=self._fetch_config_name,
             )
         except ValueError as exc:
             return {
@@ -880,14 +882,21 @@ class TaskManager:
         """Return the current resource registry and occupancy status."""
         with self._lock:
             resources = []
+            registry = self._resource_registry
             for resource in self._registered_resources:
                 held_by = self._resource_lock.get(resource)
                 pending_for: list[str] = []
                 config_id = self._config_id_of_resource(resource)
                 if config_id is not None:
                     pending_for = list(self._pending_by_config.get(config_id, []))
+                config_name: str | None = None
+                if registry is not None:
+                    if config_id is not None and config_id in registry.configs:
+                        config_name = registry.configs[config_id].name
                 resources.append({
                     "resource": resource,
+                    "config_id": config_id,
+                    "config_name": config_name,
                     "status": "occupied" if held_by else "free",
                     "held_by": held_by,
                     "pending_tasks": pending_for,

@@ -94,6 +94,8 @@ Resource-level fields (`GET /resources`):
 1. `loaded` (boolean — whether resources have been registered)
 2. `resources` (list of resource objects):
    - `resource`: string identifier
+   - `config_id`: integer or null
+   - `config_name`: string or null (resolved via HSD-ES `title` field at registry load time; falls back to `"config-<id>"` when HSD-ES is unavailable or the ID is not a valid article ID)
    - `status`: `"occupied"` or `"free"`
    - `held_by`: task_id of the holding task, or null
    - `pending_tasks`: list of task_ids waiting for this resource (sorted by priority ascending, stable by created_at)

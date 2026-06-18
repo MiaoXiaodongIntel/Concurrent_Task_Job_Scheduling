@@ -103,20 +103,24 @@ def load_tasks(
     return tasks
 
 def _build_config_name_fetcher() -> Callable[[int], str]:
-    """Build a config-name fetcher with local fallback when HSD is unavailable."""
+    """Return a function that maps config_id -> display name.
 
+    Attempts to resolve the name via HSD-ES get_article.  Falls back to
+    'config-<id>' when HSD-ES is unavailable, credentials are missing, or the
+    config_id is not a valid HSD-ES article ID.
+    """
     cache: dict[int, str] = {}
 
-    username = os.getenv("HSDES_USERNAME")
-    token = os.getenv("HSDES_TOKEN")
     client = None
-    if username and token:
-        try:
-            from lib.hsdes_client import HsdesClient
+    try:
+        from lib.hsdes_client import HsdesClient  # import triggers load_dotenv()
 
+        username = os.getenv("HSDES_USERNAME")
+        token = os.getenv("HSDES_TOKEN")
+        if username and token:
             client = HsdesClient(username=username, token=token)
-        except Exception:
-            client = None
+    except Exception:
+        pass
 
     def fetch_config_name(config_id: int) -> str:
         if config_id in cache:
@@ -124,19 +128,18 @@ def _build_config_name_fetcher() -> Callable[[int], str]:
 
         if client is not None:
             try:
-                result = client.get_article(config_id, fields=["id", "title", "name"])
+                result = client.get_article(config_id, fields=["id", "title"])
                 if result.get("ok"):
                     data = result.get("data")
                     row = data[0] if isinstance(data, list) and data else data
                     if isinstance(row, dict):
-                        maybe_name = row.get("name") or row.get("title")
+                        maybe_name = row.get("title")
                         if isinstance(maybe_name, str) and maybe_name.strip():
                             cache[config_id] = maybe_name.strip()
                             return cache[config_id]
             except Exception:
                 pass
 
-        # Local/test fallback: keep host runnable when HSD is unavailable.
         cache[config_id] = f"config-{config_id}"
         return cache[config_id]
 
@@ -295,6 +298,7 @@ def main() -> int:
 
     resource_registry: ResourceRegistry | None = None
     tasks: list[TaskJob] = []
+    config_name_fetcher = _build_config_name_fetcher()
 
     if args.tasks_file and not args.registry_file:
         print(
@@ -308,7 +312,7 @@ def main() -> int:
         try:
             resource_registry = load_resource_registry(
                 registry_file,
-                fetch_config_name=_build_config_name_fetcher(),
+                fetch_config_name=config_name_fetcher,
             )
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             print(f"Failed to load resource registry file: {exc}", file=sys.stderr)
@@ -342,6 +346,7 @@ def main() -> int:
         status_interval=args.status_interval,
         registered_resources=[r.name for r in resource_registry.resources.values()] if resource_registry else None,
         resource_registry=resource_registry,
+        fetch_config_name=config_name_fetcher,
     )
 
     monitor = MonitorServer(manager=manager, host=args.monitor_host, port=args.monitor_port)

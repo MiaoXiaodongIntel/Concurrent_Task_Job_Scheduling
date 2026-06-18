@@ -473,6 +473,8 @@ function renderResourcesPage() {
     const pendingList = (r.pending_tasks || []).join(", ") || "-";
     return `<tr>
       <td>${r.resource}</td>
+      <td>${r.config_id ?? "-"}</td>
+      <td>${r.config_name || "-"}</td>
       <td><span class="badge ${badgeClass}">${r.status}</span></td>
       <td>${r.held_by || "-"}</td>
       <td>${pendingList}</td>

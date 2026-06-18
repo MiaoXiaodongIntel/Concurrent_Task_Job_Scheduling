@@ -275,7 +275,29 @@ textarea {
   font-size: 13px;
 }
 
-.log-viewer,
+.log-viewer {
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 12px;
+  background: #101417;
+  color: #b9ffd8;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  min-height: 320px;
+  max-height: 560px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.mono-small {
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 11px;
+  color: var(--subtle, #8fa);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 .result-box {
   margin: 10px 0 0;
   border: 1px solid var(--line);

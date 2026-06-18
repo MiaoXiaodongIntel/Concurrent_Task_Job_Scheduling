@@ -66,3 +66,10 @@ def test_registry_loaded_via_post() -> None:
 
         assigned_resources = [t.get("assigned_resource") for t in tasks]
         assert all(isinstance(r, str) and r for r in assigned_resources), "FAIL: assigned_resource missing after POST /registry"
+
+        resources_data = http_get(port, "/resources")
+        assert resources_data.get("loaded") is True, "FAIL: resources not marked loaded"
+        for r in resources_data.get("resources", []):
+            assert "config_id" in r, f"FAIL: config_id missing from resource {r}"
+            assert "config_name" in r, f"FAIL: config_name missing from resource {r}"
+            assert r["config_id"] is not None, f"FAIL: config_id is null for resource {r}"

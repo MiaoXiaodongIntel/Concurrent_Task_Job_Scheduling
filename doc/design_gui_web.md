@@ -114,6 +114,8 @@ Optional fields:
 1. `loaded`: boolean
 2. `resources`: list of resource objects:
    - `resource`: string
+   - `config_id`: integer or null
+   - `config_name`: string or null (resolved via HSD-ES `title` field; falls back to `"config-<id>"` when unavailable)
    - `status`: `"occupied"` or `"free"`
    - `held_by`: string or null
    - `pending_tasks`: list of strings (task_ids, sorted by priority ascending)
