@@ -207,12 +207,13 @@ Shutdown-specific parameter validation:
 2. For lifecycle completion, poll `GET /health` and `GET /tasks`.
 3. If command returns `accepted=false`, surface `message` and `reason_code` to user.
 4. For `rerun`, show partial result if `affected_task_ids` is non-empty and `rejected_task_ids` exists.
-5. Logs page keeps `cursor` per task and requests from `next_cursor`.
-6. When `host_state=SHUTTING_DOWN`, disable mutable actions except passive refresh.
-7. Task status `pending` should render with a distinct visual style (e.g., yellow/amber) and show `blocked_by` as a tooltip or inline label.
-8. `[Abort]` button in Tasks List and Task Detail is enabled for both `running` and `pending` status.
-9. `[Rerun]` button is enabled only for `succeeded`, `failed`, and `aborted` status; disabled for `pending` with tooltip "Task is waiting for resource".
-10. Resources page polling: `GET /resources` every 1 second when the Resources tab is active.
+5. After a successful `rerun` (`accepted=true`), clear the task-table row selection (uncheck all checkboxes).
+6. Logs page keeps `cursor` per task and requests from `next_cursor`.
+7. When `host_state=SHUTTING_DOWN`, disable mutable actions except passive refresh.
+8. Task status `pending` should render with a distinct visual style (e.g., yellow/amber) and show `blocked_by` as a tooltip or inline label.
+9. `[Abort]` button in Tasks List and Task Detail is enabled for both `running` and `pending` status.
+10. `[Rerun]` button is enabled only for `succeeded`, `failed`, and `aborted` status; disabled for `pending` with tooltip "Task is waiting for resource".
+11. Resources page polling: `GET /resources` every 1 second when the Resources tab is active.
 
 ## 9. GUI Information Architecture
 

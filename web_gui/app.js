@@ -226,9 +226,6 @@ function renderTaskTable() {
           <td>${formatValue(task.assigned_resource)}</td>
           <td>${formatValue(task.priority)}</td>
           <td><span class="badge ${task.status}"${blockedTip}>${task.status}${task.blocked_by ? ' ⏳' : ''}</span></td>
-          <td>${formatValue(task.pid)}</td>
-          <td>${formatValue(task.started_at)}</td>
-          <td>${formatValue(task.ended_at)}</td>
           <td>${formatValue(task.run_index)}</td>
           <td>
             <button class="btn" data-open-task="${task.task_id}">Detail</button>
@@ -707,7 +704,11 @@ function bindEvents() {
       return;
     }
     // Eligible: succeeded, failed, or aborted tasks
-    await sendCommand("rerun", { task_ids: taskIds });
+    const result = await sendCommand("rerun", { task_ids: taskIds });
+    if (result && result.accepted) {
+      state.selectedTaskIds.clear();
+      renderTaskTable(state.tasks);
+    }
   });
 
   function openTaskDetail(taskId) {
