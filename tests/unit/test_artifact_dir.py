@@ -38,7 +38,6 @@ def _make_task(
     return TaskJob(
         task_id=task_id,
         commands=commands or ["echo hi"],
-        resource="",
         config_id=config_id,
         priority=priority,
     )

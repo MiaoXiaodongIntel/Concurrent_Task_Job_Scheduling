@@ -93,7 +93,6 @@ def load_tasks(
             TaskJob(
                 task_id=task_id,
                 commands=commands,
-                resource="",
                 config_id=config_id,
                 priority=priority,
             )

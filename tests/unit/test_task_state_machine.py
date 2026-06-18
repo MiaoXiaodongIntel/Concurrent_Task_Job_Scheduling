@@ -27,7 +27,7 @@ from task_manager import HostState, TaskJob, TaskManager, TaskStatus
 # ---------------------------------------------------------------------------
 
 def _make_task(task_id: str = "t1", config_id: int = 1, priority: int = 1) -> TaskJob:
-    return TaskJob(task_id=task_id, commands=["echo hi"], resource="", config_id=config_id, priority=priority)
+    return TaskJob(task_id=task_id, commands=["echo hi"], config_id=config_id, priority=priority)
 
 
 def _make_manager(tmp_path: Path, tasks: list[TaskJob] | None = None) -> TaskManager:

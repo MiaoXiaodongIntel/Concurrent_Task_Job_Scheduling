@@ -74,7 +74,7 @@ Lifecycle intent:
 2. `replace` mode replaces the task set only when there is no in-flight task and no `pending` task.
 3. If in-flight tasks (`starting` or `running`) or `pending` tasks exist, `replace` must be rejected with `reason_code: inflight_exists`.
 4. Submitted tasks must pass the extended validation contract:
-   - `resource` field is required and must match a registered resource (case-sensitive).
+   - `config_id` field is required and must be a positive integer matching a registered config in the loaded registry.
    - `priority` field is required and must be a positive integer.
    - All existing validations (unique task_id, non-empty commands) still apply.
 
@@ -92,7 +92,7 @@ Lifecycle intent:
 2. Reject if task does not exist (`task_not_found`).
 3. Reject if task status is neither `running` nor `pending` (`task_not_abortable`).
 4. If task is `running`: terminate the task's subprocess immediately.
-5. If task is `pending`: remove from `pending_by_resource` index; no process to terminate.
+5. If task is `pending`: remove from `pending_by_config` index; no process to terminate.
 6. In both cases: transition task status to `aborted` with `abort_reason = "user_abort"`.
 7. Host state is not changed; other tasks continue unaffected.
 8. Resource lock is not held by `pending` tasks, so no lock release is needed for the pending abort path.
@@ -102,15 +102,13 @@ Lifecycle intent:
 1. Allow targeted interruption of a single in-progress or waiting task without affecting host or sibling tasks.
 2. Aborted task may be rerun by the user after abort.
 
-### 3.7 Load Resources
+### 3.7 Load Registry
 
-1. Accept a list of resource identifiers (non-empty strings).
+1. Accept a registry object `{ "resources": [...] }` where each entry declares `config_id`, `name`, and `properties`.
 2. Reject if host state is not `NOT_RUN` (`reason_code: invalid_host_state`).
-3. Reject if resources have already been loaded (`reason_code: already_loaded`).
-4. Reject if the provided list is empty (`reason_code: empty_resources`).
-5. Deduplicate entries (preserve original order, retain first occurrence).
-6. Store the deduplicated list as the registered resource registry.
-7. Resources are immutable after loading; a second `load_resources` call is always rejected.
+3. Reject if the registry has already been loaded (`reason_code: already_loaded`).
+4. Reject if the provided resources list is empty.
+5. Registry is immutable after loading; a second `load_registry` call is always rejected.
 
 ## 4. Interface with Other Modules
 

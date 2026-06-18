@@ -49,7 +49,7 @@ def _make_manager(tmp_path: Path) -> TaskManager:
 
 def _inject_running_task(manager: TaskManager, task_id: str = "t1") -> None:
     """Inject a fake RUNNING task so _inflight_count() > 0."""
-    task = TaskJob(task_id=task_id, commands=["echo hi"], resource="machine-A", priority=1)
+    task = TaskJob(task_id=task_id, commands=["echo hi"], config_id=1, priority=1)
     proc = MagicMock()
     proc.pid = 9999
     with manager._lock:

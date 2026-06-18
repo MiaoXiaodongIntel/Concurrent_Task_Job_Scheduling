@@ -90,7 +90,6 @@ class RunRecord:
 class TaskJob:
     task_id: str
     commands: list[str]
-    resource: str = ""
     config_id: int = 0
     assigned_resource: str | None = None
     resolved_commands: list[str] | None = None
@@ -112,7 +111,6 @@ class TaskJob:
     def to_dict(self, include_history: bool = False) -> dict[str, object]:
         d: dict[str, object] = {
             "task_id": self.task_id,
-            "resource": self.resource,
             "config_id": self.config_id,
             "assigned_resource": self.assigned_resource,
             "resolved_commands": self.resolved_commands,
@@ -377,7 +375,6 @@ class TaskManager:
         return TaskJob(
             task_id=task_id,
             commands=commands,
-            resource="",
             config_id=config_id,
             priority=priority,
         )
@@ -1190,7 +1187,7 @@ class TaskManager:
                 logf.close()
 
             # Release resource lock and wake the highest-priority pending task.
-            resource = task.assigned_resource or task.resource
+            resource = task.assigned_resource
             self._resource_lock.pop(resource, None)
             self._wake_pending_for_released_resource(resource)
 
@@ -1203,7 +1200,7 @@ class TaskManager:
             task = self.tasks[task_id]
             if task.status != TaskStatus.QUEUED:
                 return
-            task.assigned_resource = assigned_resource or task.resource
+            task.assigned_resource = assigned_resource
             self._set_task_status(task, TaskStatus.STARTING)
             task.started_at = now_iso()
             task.ended_at = None
@@ -1212,7 +1209,7 @@ class TaskManager:
             task.blocked_by = None
             task.pid = None
             # Write resource lock at STARTING to prevent same-tick double-admission.
-            lock_resource = task.assigned_resource or task.resource
+            lock_resource = task.assigned_resource
             if lock_resource:
                 self._resource_lock[lock_resource] = task_id
 
@@ -1227,7 +1224,7 @@ class TaskManager:
                 task.exit_code = -1
                 task.abort_reason = f"render_failed: {exc}"
                 self._set_task_status(task, TaskStatus.FAILED)
-                lock_resource = task.assigned_resource or task.resource
+                lock_resource = task.assigned_resource
                 self._resource_lock.pop(lock_resource, None)
                 self._wake_pending_for_released_resource(lock_resource)
             print(f"[TASK] {task_id} command render failed: {exc}")
@@ -1269,7 +1266,7 @@ class TaskManager:
                 self._set_task_status(task, TaskStatus.FAILED)
                 # Release resource lock so pending tasks can proceed (§2.4: lock released
                 # when a task enters any terminal state).
-                lock_resource = task.assigned_resource or task.resource
+                lock_resource = task.assigned_resource
                 self._resource_lock.pop(lock_resource, None)
                 self._wake_pending_for_released_resource(lock_resource)
             log_file.write(f"{now_iso()} [SYSTEM] spawn failed: {exc}\n")

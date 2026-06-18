@@ -56,8 +56,9 @@ Scope:
 ### 4.2 Task Model (`GET /tasks`, `GET /tasks/{id}`)
 
 1. `task_id`: string
-2. `resource`: string
-3. `priority`: integer
+2. `config_id`: integer
+3. `assigned_resource`: string or null (resource allocated by scheduler at dispatch time)
+4. `priority`: integer
 4. `commands`: list of strings
 5. `status`: `queued|pending|starting|running|succeeded|failed|aborted`
 6. `blocked_by`: string (task_id of holder) or null
@@ -96,7 +97,7 @@ RunRecord object (per entry in `run_history`):
 
 Common fields:
 1. `accepted`: boolean
-2. `command`: `start|graceful_stop|force_stop|rerun|shutdown|submit_tasks|abort_task|load_resources`
+2. `command`: `start|graceful_stop|force_stop|rerun|shutdown|submit_tasks|abort_task|load_registry`
 3. `requested_at`: timestamp string
 4. `host_state_before`: host state string
 5. `host_state_after_expected`: host state string
@@ -133,12 +134,12 @@ Optional fields:
 | `/control/shutdown` | POST | `{ "mode": "drain|force", "timeout_sec": number? }` | control response | `400` + `accepted=false` and `reason_code` |
 | `/tasks/submit` | POST | `{ "submit_mode": "append|replace", "tasks": TaskPayload[] }` | submit response | `400` + `accepted=false` and `reason_code` |
 | `/tasks/{id}/abort` | POST | empty object or no body | control response | `400` + `accepted=false` and `reason_code` |
-| `/resources` | POST | `{ "resources": string[] }` | control response | `400` + `accepted=false` and `reason_code` |
+| `/resources` | POST | `{ "resources": ResourceEntry[] }` where each entry has `config_id`, `name`, `properties` | control response | `400` + `accepted=false` and `reason_code` |
 
 `TaskPayload`:
 1. `task_id`: optional string (auto-generated if missing/empty)
 2. `commands`: required non-empty list of non-empty strings
-3. `resource`: required non-empty string (must be a registered resource)
+3. `config_id`: required positive integer (must match a registered config in the loaded registry)
 4. `priority`: required positive integer
 
 ## 6. State Preconditions for Control Commands
@@ -165,7 +166,7 @@ Shutdown-specific parameter validation:
 | `submit_tasks` (`append`) | all incoming `task_id` must be non-duplicate against existing tasks | `duplicate_task_id` |
 | `submit_tasks` (`replace`) | no in-flight tasks (`starting` or `running`) and no `pending` tasks | `inflight_exists` |
 | `submit_tasks` (all modes) | host must not be shutting down | `host_shutting_down` |
-| `submit_tasks` (all modes) | payload shape must be valid; `resource` registered; `priority` positive int | `invalid_task_payload`, `invalid_submit_mode`, `resource_not_registered`, `missing_resource_field`, `missing_priority_field`, `invalid_priority` |
+| `submit_tasks` (all modes) | payload shape must be valid; `config_id` registered; `priority` positive int | `invalid_task_payload`, `invalid_submit_mode`, `registry_not_loaded`, `missing_priority_field`, `invalid_priority` |
 | `load_resources` | host must be `NOT_RUN`; resources not yet loaded; list must be non-empty | `invalid_host_state`, `already_loaded`, `empty_resources` |
 
 ## 7. Reason Code Dictionary (Frozen v1)
@@ -193,8 +194,8 @@ Shutdown-specific parameter validation:
 4. `host_shutting_down`
 5. `inflight_exists`
 6. `duplicate_task_id`
-7. `missing_resource_field`
-8. `resource_not_registered`
+7. `missing_resource_field` ~~(removed)~~
+8. ~~`resource_not_registered`~~ → replaced by `registry_not_loaded`
 9. `missing_priority_field`
 10. `invalid_priority`
 
@@ -262,4 +263,4 @@ UX principles applied:
 7. **Refresh control**: The top bar includes an "Updated Xs ago" label (updates every second) alongside an auto-refresh interval slider (`0`–`30s`, default `1s`). Moving the slider re-applies the polling interval immediately; the `0` position pauses auto-refresh and the label reads "off". The slider affects only GUI polling, not task-host logic.
 8. **Shutdown mode**: The drain/force mode `<select>` is inline with the Shutdown button in the Host Commands action row.
 9. **Task Detail selection**: The Task Detail page uses a single task `<select>`; changing the selection switches the displayed task and its logs immediately (no separate "Open" button). Background task-list refreshes preserve the user's current dropdown selection.
-10. **Tasks table columns**: The Tasks list table shows columns: checkbox, `task_id`, `resource`, `priority`, `status` (badge), `pid`, `started_at`, `ended_at`, `run_index`, and `Operation`. `run_index` is preferred over `exit_code` because the `status` badge already conveys success/failure; `run_index` adds distinct information about rerun count. The `Operation` column contains the `Detail` button (navigates to Task Detail) and, for eligible tasks, the `Abort` button.
+10. **Tasks table columns**: The Tasks list table shows columns: checkbox, `task_id`, `config_id`, `assigned_resource`, `priority`, `status` (badge), `pid`, `started_at`, `ended_at`, `run_index`, and `Operation`. `run_index` is preferred over `exit_code` because the `status` badge already conveys success/failure; `run_index` adds distinct information about rerun count. The `Operation` column contains the `Detail` button (navigates to Task Detail) and, for eligible tasks, the `Abort` button.

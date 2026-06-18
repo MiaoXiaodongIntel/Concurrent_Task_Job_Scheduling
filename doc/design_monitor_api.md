@@ -62,8 +62,9 @@ Host-level fields:
 Task-level fields:
 
 1. `task_id`
-2. `resource`
-3. `priority`
+2. `config_id` (the configuration pool the task targets)
+3. `assigned_resource` (the specific resource allocated by the scheduler at dispatch time, or null before dispatch)
+4. `priority`
 4. `status` (`queued|pending|starting|running|succeeded|failed|aborted`)
 5. `blocked_by` (task_id of the task holding the resource when `status=pending`, otherwise null)
 6. `pid`

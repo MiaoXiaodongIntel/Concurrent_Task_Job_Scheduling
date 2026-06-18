@@ -120,7 +120,6 @@ def test_config_id_task_is_accepted(tmp_path):
     assert len(tasks) == 1
     assert tasks[0].task_id == "c1"
     assert tasks[0].config_id == 1
-    assert tasks[0].resource == ""
 
 
 def test_unregistered_config_id_raises(tmp_path):

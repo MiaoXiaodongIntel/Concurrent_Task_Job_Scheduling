@@ -19,7 +19,7 @@ def _make_manager(tmp_path: Path) -> TaskManager:
                           max_memory_percent=95.0, max_disk_active_percent=99.0)
     runner = MagicMock(spec=TaskRunner)
     return TaskManager(
-        tasks=[TaskJob(task_id="t1", commands=["echo ok"], resource="machine-A", priority=1)],
+        tasks=[TaskJob(task_id="t1", commands=["echo ok"], config_id=1, priority=1)],
         scheduler=scheduler,
         runner=runner,
         log_dir=tmp_path / "logs",
