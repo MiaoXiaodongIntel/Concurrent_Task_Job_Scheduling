@@ -24,7 +24,8 @@ tests/
 │   ├── test_resource_conflict.py  # Pending/lock behavior around config pools
 │   ├── test_template_render.py    # resource placeholder rendering
 │   ├── test_artifact_dir.py       # ARTIFACT_DIR behavior
-│   └── test_abort_task.py         # abort_task semantics
+│   ├── test_abort_task.py         # abort_task semantics
+│   └── test_task_builder.py       # query-driven task generation contract
 │
 └── e2e/                          # End-to-end tests, spawning a real host process + HTTP (local only)
     ├── conftest.py               # Shared helpers: HostProcess, http_get/post, wait helpers
@@ -62,6 +63,7 @@ tests/
 | design_task_manager.md §4.1 | Resource placeholder rendering and strict unknown-placeholder failure | `unit/test_template_render.py` |
 | design_task_manager.md §4.4 | Artifact directory placeholder expansion and per-run path behavior | `unit/test_artifact_dir.py` |
 | design_control_plane.md §3.6 | Per-task abort_task semantics | `unit/test_abort_task.py` |
+| query-driven task intake contract | Build tasks from HSD-ES query data, parent-priority lookup, and config-registry mismatch gate | `unit/test_task_builder.py` |
 | design_arch.md capability 1/5 | Multi-task concurrent execution, all tasks succeed | `e2e/test_smoke.py` |
 | design_arch.md capability 1/5 | Config-pool end-to-end scheduling with assigned_resource verification | `e2e/test_config_pool.py` |
 | design_control_plane.md §3.1 | graceful-stop: RUNNING->DRAINING, in-flight tasks complete, ->NOT_RUN | `e2e/test_control.py` |

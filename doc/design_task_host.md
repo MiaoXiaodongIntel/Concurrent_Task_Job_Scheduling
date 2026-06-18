@@ -74,6 +74,14 @@ Validation guarantees:
 5. `priority` field present and is a positive integer
 6. at least one task exists (when tasks file is provided)
 
+## 3.2 Upstream Task Generation Contract
+
+TaskHost consumes runtime `tasks.json`, while task generation can be sourced from upstream query data:
+
+1. Upstream Task Builder may build `tasks.json` from HSD-ES query results.
+2. Generated tasks must still satisfy TaskHost's runtime schema (`task_id`, `commands`, `config_id`, `priority`).
+3. TaskHost remains source-agnostic: it validates only the final task payload, regardless of whether tasks came from manual files or query-driven generation.
+
 ## 3.1 Resource Registry Contract
 
 Accepted registry-file format: object containing a `resources` list where each entry declares `config_id`, `name`, and `properties`.

@@ -38,6 +38,7 @@
 28. [Entry 28 - Execution Path Guardrails and Validation](#entry-28)
 29. [Entry 29 - Backward-Compatible Migration Path](#entry-29)
 30. [Entry 30 - Legacy Per-Machine Binding Interface Removed](#entry-30)
+31. [Entry 31 - Query-Driven Task Creation Source](#entry-31)
 ## Change Log Rules
 
 Each entry uses:
@@ -479,5 +480,16 @@ Each entry uses:
 - Why improved:
   - Eliminates the dual-path complexity that increased maintenance cost and cognitive overhead for operators.
   - Enforces a single, predictable scheduling contract across all task definitions and tooling.
+
+## Entry 31
+
+- Change summary: Task creation is now driven by HSD-ES query results.
+- Entry type: Requirement Change
+- Original design -> New design:
+  - Original: Task creation depended on manually prepared local task-definition input files.
+  - New: Task creation is sourced from HSD-ES query results, using article data as the input contract.
+- Why improved:
+  - Reduces manual preprocessing effort before scheduling.
+  - Aligns task intake with upstream business data ownership.
 
 
