@@ -1,6 +1,6 @@
 ---
 name: sync-and-commit
-description: "CI/CD-style workflow skill. Use when you want to: curate design flow, sync docs/tests/code with the latest changes, run all tests to confirm everything passes, then git commit. Triggers automatically after a feature is implemented and ready to ship."
+description: "CI/CD-style workflow skill. Use when you want to: summarize session changes, sync docs/tests/code with the latest changes, run all tests to confirm everything passes, then git commit. Triggers automatically after a feature is implemented and ready to ship."
 user-invocable: true
 ---
 
@@ -8,23 +8,59 @@ user-invocable: true
 
 ## Goal
 
-Act as a CI/CD gate before committing.  Given the current change summary, ensure documentation, tests, and source code are all consistent, all tests pass, then produce a clean git commit.
+Act as a CI/CD gate before committing.  Summarize what changed in this session, ensure documentation, tests, and source code are all consistent, all tests pass, then produce a clean git commit.
 
 ---
 
-## Step 1 — Curate Design Flow
+## Step 1 — Summarize Session Changes
 
-Invoke the `design-flow-curation` skill:
+Use **two complementary sources** and merge them into a single summary.  Neither source alone is sufficient.
 
-> Read the instructions from `.github/skills/design-flow-curation/SKILL.md` and execute them in full.
+### 1.1 — Session Conversation Review
 
-This step may prompt the user for confirmation before writing.  Wait for confirmation and proceed only after it is given.
+Recall the current conversation history and extract every action taken in this session:
+
+- Requirements or design decisions discussed.
+- Files the user asked to create, modify, or delete.
+- Features implemented, bugs fixed, or refactors performed.
+- Any explicit decisions or trade-offs made.
+
+This captures intent and context that may not yet be reflected in git (e.g., in-memory edits, recently saved but un-staged files, or conversational decisions with no file change yet).
+
+### 1.2 — Git Change Detection
+
+Run the following commands to enumerate all file-level changes visible to git:
+
+```
+git status --short
+git diff --name-only HEAD
+git diff --name-only --cached
+```
+
+For each changed file, read its diff to understand what was concretely added, removed, or updated:
+
+```
+git diff HEAD -- <file>
+```
+
+This captures concrete file mutations that may have happened outside the conversation (e.g., edits made in the editor without being mentioned in chat).
+
+### 1.3 — Merge into Session Change Summary
+
+Cross-reference both sources.  Items found in one but not the other are still included.  Produce a structured **Session Change Summary** covering:
+
+- **Code changes** (`core/`, `web_gui/`, `lib/`, `tools/`): what logic was added or modified.
+- **Documentation changes** (`doc/`): which design docs were updated and what changed.
+- **Test changes** (`tests/`): which tests were added or modified.
+- **Other** (config, tooling, skills, etc.): anything that doesn't fit the above.
+
+Present this summary to the user as a brief bulleted list.  If both sources return nothing at all, ask the user to describe what was done in this session before continuing.
 
 ---
 
 ## Step 2 — Derive the Change Summary
 
-After the design-flow curation is done, extract the **Change summary** sentence(s) from the entries just appended to `doc/design_flow.md`.  If no new entries were appended, ask the user for a one-line change summary before continuing.
+From the Session Change Summary produced in Step 1, distill a single imperative sentence (≤72 chars) that describes the most significant change.
 
 Store this as `CHANGE_SUMMARY` — it will be used for the commit message in Step 5.
 
@@ -108,8 +144,8 @@ git commit -m "<CHANGE_SUMMARY>"
 
 ## Checklist (self-verify before finishing)
 
-- [ ] design-flow-curation skill executed and user confirmed
-- [ ] CHANGE_SUMMARY extracted
+- [ ] Session changes detected via git and summarized (code / doc / tests)
+- [ ] CHANGE_SUMMARY distilled (imperative, ≤72 chars)
 - [ ] doc/ gaps filled
 - [ ] tests/ gaps filled
 - [ ] core/ and web_gui/ gaps filled
