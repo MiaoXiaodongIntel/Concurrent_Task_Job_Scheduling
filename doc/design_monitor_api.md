@@ -120,7 +120,7 @@ Requirement 2.6 (manual lifecycle intervention):
 6. `POST /control/shutdown` submits host process shutdown intent (`drain` default).
 7. `GET /health` and `GET /tasks` expose intervention effects (for example reduced admissions, `aborted` tasks, and `abort_reason`).
 8. `POST /tasks/{id}/abort` submits per-task abort intent for a single `running` or `pending` task.
-9. `POST /resources` submits the resource registry (accepted only when host is `NOT_RUN` and resources not yet loaded).
+9. `POST /registry` submits the resource registry (object-array format; accepted only when host is `NOT_RUN` and resources not yet loaded).
 10. `GET /resources` exposes current resource occupancy and pending-task queues per resource.
 
 ### 4.3 Control Command Response Contract

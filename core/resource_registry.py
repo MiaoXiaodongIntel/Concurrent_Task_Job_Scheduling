@@ -41,11 +41,11 @@ class ResourceRegistry:
     resources_by_config: dict[int, list[int]]
 
 
-def load_resource_registry(
-    registry_file: Path,
+def load_resource_registry_from_raw(
+    raw: dict,
     fetch_config_name: Callable[[int], str],
 ) -> ResourceRegistry:
-    """Load resource registry JSON and resolve config names.
+    """Parse a registry dict and resolve config names.
 
     The input format is:
     {
@@ -56,9 +56,8 @@ def load_resource_registry(
     }
     """
 
-    raw = json.loads(registry_file.read_text(encoding="utf-8"))
     if not isinstance(raw, dict) or not isinstance(raw.get("resources"), list):
-        raise ValueError("registry file must be an object containing a 'resources' list")
+        raise ValueError("registry must be an object containing a 'resources' list")
 
     resources_raw = raw["resources"]
     if not resources_raw:
@@ -125,3 +124,12 @@ def load_resource_registry(
         resource_name_index=resource_name_index,
         resources_by_config=resources_by_config,
     )
+
+
+def load_resource_registry(
+    registry_file: Path,
+    fetch_config_name: Callable[[int], str],
+) -> ResourceRegistry:
+    """Load resource registry from a JSON file."""
+    raw = json.loads(registry_file.read_text(encoding="utf-8"))
+    return load_resource_registry_from_raw(raw, fetch_config_name)

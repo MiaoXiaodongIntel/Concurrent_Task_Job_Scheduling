@@ -179,7 +179,7 @@ function renderRecentTasks() {
       (task) => `
       <tr>
         <td>${task.task_id}</td>
-        <td>${formatValue(task.resource)}</td>
+        <td>${formatValue(task.assigned_resource)}</td>
         <td><span class="badge ${task.status}">${task.status}</span></td>
         <td>${formatValue(task.started_at)}</td>
         <td>${formatValue(task.ended_at)}</td>
@@ -222,7 +222,8 @@ function renderTaskTable() {
         <tr>
           <td><input type="checkbox" data-select-task="${task.task_id}" ${checked} /></td>
           <td>${task.task_id}</td>
-          <td>${formatValue(task.resource)}</td>
+          <td>${formatValue(task.config_id)}</td>
+          <td>${formatValue(task.assigned_resource)}</td>
           <td>${formatValue(task.priority)}</td>
           <td><span class="badge ${task.status}"${blockedTip}>${task.status}${task.blocked_by ? ' ⏳' : ''}</span></td>
           <td>${formatValue(task.pid)}</td>
@@ -335,7 +336,7 @@ function renderTaskDetail() {
        <strong>run #:</strong> ${formatValue(task.run_index)}
        <strong>pid:</strong> ${formatValue(task.pid)}
        <strong>exit_code:</strong> ${formatValue(task.exit_code)}</p>
-    <p><strong>resource:</strong> ${formatValue(task.resource)} &nbsp; <strong>priority:</strong> ${formatValue(task.priority)}</p>
+    <p><strong>config_id:</strong> ${formatValue(task.config_id)} &nbsp; <strong>assigned_resource:</strong> ${formatValue(task.assigned_resource)} &nbsp; <strong>priority:</strong> ${formatValue(task.priority)}</p>
     <p><strong>blocked_by:</strong> ${formatValue(task.blocked_by)}</p>
     <p><strong>created_at:</strong> ${formatValue(task.created_at)}</p>
     <p><strong>started_at:</strong> ${formatValue(task.started_at)} <strong>ended_at:</strong> ${formatValue(task.ended_at)}</p>
@@ -733,6 +734,50 @@ function bindEvents() {
     renderLogs();
   });
 
+  byId("loadRegistryFileBtn").addEventListener("click", () => {
+    byId("registryFileInput").click();
+  });
+
+  byId("registryFileInput").addEventListener("change", (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const parsed = JSON.parse(e.target.result);
+        byId("registryJsonEditor").value = JSON.stringify(parsed, null, 2);
+        byId("registryResult").textContent = `Loaded: ${file.name} (${file.size} bytes)`;
+        showAlert(`Loaded ${file.name}`);
+      } catch (err) {
+        byId("registryResult").textContent = `Failed to parse file: ${err.message}`;
+        showAlert(`Failed to parse file: ${err.message}`, "error");
+      }
+      event.target.value = "";
+    };
+    reader.readAsText(file);
+  });
+
+  byId("submitRegistryBtn").addEventListener("click", async () => {
+    try {
+      const raw = byId("registryJsonEditor").value;
+      const parsed = JSON.parse(raw);
+      if (!parsed || !Array.isArray(parsed.resources)) {
+        throw new Error("payload must be an object with a resources array");
+      }
+      if (!parsed.resources.every((r) => typeof r === "object" && r !== null && "config_id" in r && "name" in r)) {
+        throw new Error("each resource must be an object with config_id and name fields");
+      }
+      const result = await postJson("/registry", { resources: parsed.resources });
+      byId("registryResult").textContent = JSON.stringify(result, null, 2);
+      pushHistory(result);
+      await refreshResources();
+      showAlert(`load_registry: ${result.message} (${result.reason_code})`, result.accepted ? "success" : "error");
+    } catch (err) {
+      byId("registryResult").textContent = `Submit failed: ${err.message}`;
+      showAlert(`Submit failed: ${err.message}`, "error");
+    }
+  });
+
   byId("loadTaskFileBtn").addEventListener("click", () => {
     byId("taskFileInput").click();
   });
@@ -782,67 +827,27 @@ function bindEvents() {
     }
   });
 
-  byId("loadResourceFileBtn").addEventListener("click", () => {
-    byId("resourceFileInput").click();
-  });
-
-  byId("resourceFileInput").addEventListener("change", (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const parsed = JSON.parse(e.target.result);
-        byId("resourcesJsonEditor").value = JSON.stringify(parsed, null, 2);
-        byId("resourcesResult").textContent = `Loaded: ${file.name} (${file.size} bytes)`;
-        showAlert(`Loaded ${file.name}`);
-      } catch (err) {
-        byId("resourcesResult").textContent = `Failed to parse file: ${err.message}`;
-        showAlert(`Failed to parse file: ${err.message}`, "error");
-      }
-      event.target.value = "";
-    };
-    reader.readAsText(file);
-  });
-
-  byId("submitResourceListBtn").addEventListener("click", async () => {
-    try {
-      const raw = byId("resourcesJsonEditor").value;
-      const parsed = JSON.parse(raw);
-      if (!parsed || !Array.isArray(parsed.resources)) {
-        throw new Error("payload must be an object with a resources array");
-      }
-      const result = await postJson("/resources", { resources: parsed.resources });
-      byId("resourcesResult").textContent = JSON.stringify(result, null, 2);
-      pushHistory(result);
-      await refreshResources();
-      showAlert(`load_resources: ${result.message} (${result.reason_code})`, result.accepted ? "success" : "error");
-    } catch (err) {
-      byId("resourcesResult").textContent = `Submit failed: ${err.message}`;
-      showAlert(`Submit failed: ${err.message}`, "error");
-    }
-  });
 }
 
 function preloadSubmitTemplate() {
   const sample = {
     tasks: [
       {
-        task_id: "demo-ui-1",
-        resource: "machine-A",
+        task_id: "cfg-demo-1",
+        config_id: 1,
         priority: 1,
         commands: [
-          "Write-Host 'demo-ui-1 start'; Start-Sleep -Seconds 1",
-          "Write-Host 'demo-ui-1 done'",
+          "Write-Host 'cfg-demo-1 start'; Start-Sleep -Seconds 1",
+          "Write-Host 'cfg-demo-1 done'",
         ],
       },
       {
-        task_id: "demo-ui-2",
-        resource: "machine-B",
+        task_id: "cfg-demo-2",
+        config_id: 1,
         priority: 2,
         commands: [
-          "Write-Host 'demo-ui-2 start'; Start-Sleep -Seconds 2",
-          "Write-Host 'demo-ui-2 done'",
+          "Write-Host 'cfg-demo-2 start'; Start-Sleep -Seconds 2",
+          "Write-Host 'cfg-demo-2 done'",
         ],
       },
     ],

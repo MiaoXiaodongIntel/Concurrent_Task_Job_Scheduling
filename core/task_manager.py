@@ -12,6 +12,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, TextIO
 
+from resource_registry import load_resource_registry_from_raw
 from scheduler import ResourceUsage, Scheduler
 from task_runner import RunningTaskHandle, TaskRunner
 
@@ -835,51 +836,47 @@ class TaskManager:
                 return starter_id
         return None
 
-    def load_resources(self, resources: list[str]) -> dict[str, Any]:
-        """Register the resource list. Accepted only when host is NOT_RUN and not yet loaded."""
+    def load_registry(self, raw: dict) -> dict[str, Any]:
+        """Load a resource registry from a raw dict. Accepted only when host is NOT_RUN and not yet loaded."""
         with self._lock:
             if self.host_state != HostState.NOT_RUN:
                 return {
                     "accepted": False,
                     "reason_code": "invalid_host_state",
-                    "message": "resources can only be loaded when host is NOT_RUN",
+                    "message": "registry can only be loaded when host is NOT_RUN",
                 }
             if self._resources_loaded:
                 return {
                     "accepted": False,
                     "reason_code": "already_loaded",
-                    "message": "resources have already been loaded",
-                }
-            if not resources:
-                return {
-                    "accepted": False,
-                    "reason_code": "empty_resources",
-                    "message": "resources list must not be empty",
+                    "message": "registry has already been loaded",
                 }
 
-            # Deduplicate while preserving order.
-            seen: set[str] = set()
-            deduped: list[str] = []
-            for r in resources:
-                if not isinstance(r, str) or not r.strip():
-                    return {
-                        "accepted": False,
-                        "reason_code": "empty_resources",
-                        "message": "all resource identifiers must be non-empty strings",
-                    }
-                if r not in seen:
-                    seen.add(r)
-                    deduped.append(r)
+        try:
+            registry = load_resource_registry_from_raw(
+                raw,
+                fetch_config_name=lambda cid: f"config-{cid}",
+            )
+        except ValueError as exc:
+            return {
+                "accepted": False,
+                "reason_code": "invalid_registry",
+                "message": str(exc),
+            }
 
-            self._registered_resources = deduped
-            self._registered_resources_set = set(deduped)
+        resource_names = [r.name for r in registry.resources.values()]
+        with self._lock:
+            self._resource_registry = registry
+            self._registered_resources = resource_names
+            self._registered_resources_set = set(resource_names)
             self._resources_loaded = True
 
-        print(f"[HOST] resources loaded: {deduped}")
+        print(f"[HOST] registry loaded: {len(resource_names)} resources, "
+              f"{len(registry.configs)} config(s)")
         return {
             "accepted": True,
             "reason_code": "accepted",
-            "message": f"loaded {len(deduped)} resources",
+            "message": f"loaded {len(resource_names)} resources across {len(registry.configs)} config(s)",
         }
 
     def snapshot_resources(self) -> dict[str, Any]:

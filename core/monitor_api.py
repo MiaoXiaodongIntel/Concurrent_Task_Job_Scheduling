@@ -143,7 +143,7 @@ class MonitorServer:
                 parsed = urlparse(self.path)
                 path = parsed.path
 
-                if path == "/resources":
+                if path == "/registry":
                     try:
                         payload = self._read_json()
                     except ValueError as exc:
@@ -151,16 +151,16 @@ class MonitorServer:
                         return
                     resources_raw = payload.get("resources") if isinstance(payload, dict) else None
                     if not isinstance(resources_raw, list):
-                        self._write_json(400, {"accepted": False, "command": "load_resources",
-                                               "reason_code": "empty_resources",
+                        self._write_json(400, {"accepted": False, "command": "load_registry",
+                                               "reason_code": "invalid_payload",
                                                "message": "payload must contain a 'resources' list"})
                         return
                     host_state_before = manager.snapshot_health()["host_state"]
-                    result = manager.load_resources(resources_raw)
+                    result = manager.load_registry({"resources": resources_raw})
                     host_state_after_expected = manager.snapshot_health()["host_state"]
                     response = {
                         "accepted": result["accepted"],
-                        "command": "load_resources",
+                        "command": "load_registry",
                         "requested_at": now_iso(),
                         "host_state_before": host_state_before,
                         "host_state_after_expected": host_state_after_expected,

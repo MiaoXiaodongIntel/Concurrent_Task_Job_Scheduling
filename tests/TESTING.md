@@ -66,6 +66,7 @@ tests/
 | query-driven task intake contract | Build tasks from HSD-ES query data, parent-priority lookup, and config-registry mismatch gate | `unit/test_task_builder.py` |
 | design_arch.md capability 1/5 | Multi-task concurrent execution, all tasks succeed | `e2e/test_smoke.py` |
 | design_arch.md capability 1/5 | Config-pool end-to-end scheduling with assigned_resource verification | `e2e/test_config_pool.py` |
+| design_monitor_api.md §3 | `POST /registry` loads resource registry via HTTP; tasks complete with assigned_resource | `e2e/test_config_pool.py` |
 | design_control_plane.md §3.1 | graceful-stop: RUNNING->DRAINING, in-flight tasks complete, ->NOT_RUN | `e2e/test_control.py` |
 | design_control_plane.md §3.2 | force-stop: RUNNING->STOPPING_FORCE, tasks->ABORTED, ->NOT_RUN | `e2e/test_control.py` |
 | design_control_plane.md §3.3 | rerun: SUCCEEDED->QUEUED, task completes again | `e2e/test_control.py` |

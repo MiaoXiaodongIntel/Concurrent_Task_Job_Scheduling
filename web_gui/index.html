@@ -74,7 +74,7 @@
               <thead>
                 <tr>
                   <th>task_id</th>
-                  <th>resource</th>
+                  <th>assigned_resource</th>
                   <th>status</th>
                   <th>started_at</th>
                   <th>ended_at</th>
@@ -131,7 +131,8 @@
                 <tr>
                   <th><input id="checkAllTasks" type="checkbox" /></th>
                   <th>task_id</th>
-                  <th>resource</th>
+                  <th>config_id</th>
+                  <th>assigned_resource</th>
                   <th>priority</th>
                   <th>status</th>
                   <th>pid</th>
@@ -191,14 +192,19 @@
       <section id="resourcesView" class="view hidden">
         <h2>Resources</h2>
         <div class="panel" id="resourcesLoadPanel">
-          <p class="subtle">Load a resources definition — only available when host is <strong>NOT_RUN</strong> and resources have not yet been loaded.</p>
+          <p class="subtle">Load a registry file — only available when host is <strong>NOT_RUN</strong> and registry has not yet been loaded.</p>
           <div class="filters" style="margin-top:8px">
-            <button id="loadResourceFileBtn" class="btn btn-secondary">Load File</button>
-            <input id="resourceFileInput" type="file" accept=".json" style="display:none" />
-            <button id="submitResourceListBtn" class="btn">Submit Resource List</button>
+            <button id="loadRegistryFileBtn" class="btn btn-secondary">Load File</button>
+            <input id="registryFileInput" type="file" accept=".json" style="display:none" />
+            <button id="submitRegistryBtn" class="btn">Submit Registry</button>
           </div>
-          <textarea id="resourcesJsonEditor" class="json-editor" spellcheck="false">{ "resources": ["machine-A", "machine-B"] }</textarea>
-          <pre id="resourcesResult" class="result-box"></pre>
+          <textarea id="registryJsonEditor" class="json-editor" spellcheck="false">{
+  "resources": [
+    { "config_id": 1, "name": "machine-A", "properties": { "port": "2201" } },
+    { "config_id": 2, "name": "machine-B", "properties": { "port": "2202" } }
+  ]
+}</textarea>
+          <pre id="registryResult" class="result-box"></pre>
         </div>
         <div class="panel" id="resourcesStatusPanel">
           <h3>Resource Status</h3>
